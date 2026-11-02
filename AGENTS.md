@@ -1,4 +1,4 @@
-# AGENTS.md — working with this repo
+# AGENTS.md
 
 Read this first. It's written for a coding agent (Hermes, Claude Code, Codex) that's going to
 change code in `quant-terminal`. Keep it accurate: if a rule here becomes stale, fix it in the
