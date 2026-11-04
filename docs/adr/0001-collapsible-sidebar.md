@@ -1,8 +1,10 @@
 # ADR 0001 — Collapsible right sidebar (adopted, v2)
 
-- Status: adopted (v2, 2026-11-04). v1 (2026-11-04) withdrawn after review
-  surfaced a real contradiction in Decision #2 and two genuine design gaps.
-  See "Revision history" at the end for the diff.
+- Status: adopted (v3, 2026-11-04). v1 (2026-11-04) withdrawn after the 7-point
+  review found an internal contradiction in Decision #2; v2 (2026-11-04) fixed
+  §§1–7. v3 (2026-11-04) addressed the round-2 follow-up (3 more blocking
+  points: missing active-state feedback in the strip, the `<span>` markup
+  assumption, and an unrunnable test plan). See "Revision history" at the end.
 
 ## Context
 
@@ -45,6 +47,16 @@ body hides, strip carries the toggle** — not "collapse the container to zero."
    The chart grid (`.grid`, `flex: 1`) takes the released 264px.
    **No `width: 0`, no `overflow: hidden` on the `<aside>`** — that
    combination makes the reopen path invisible (v1's error, fixed here).
+   **Active-tab feedback in the strip (required, v3).** Collapsed state
+   must not be a dead-end: the four tab icons each carry `data-tab`, and
+   the currently-selected one stays highlighted exactly as it does when
+   expanded (the existing `.tabs .active` rule already covers the strip —
+   re-use it, don't add a second selector). A click on a collapsed tab
+   icon therefore (a) shows the active state immediately and (b) — if the
+   user has it open as the overlay drawer on < 900px — switches the
+   drawer's pane. On desktop ≥ 900px a click on a collapsed tab icon
+   also expands the sidebar to that tab (re-open shortcut), so a
+   collapsed strip is a working control, not an inert rail.
 
 3. **Persistence.** Two `localStorage` keys read at boot:
    - `qt-side-collapsed` = `"1"` | `"0"` — the collapsed flag.
@@ -105,9 +117,16 @@ body hides, strip carries the toggle** — not "collapse the container to zero."
 Files touched (all `public/`):
 
 - `public/index.html` (lines 141-149) —
-  - Inside the four tab buttons, wrap the text in `<span>` so collapse
-    can hide it, and add a small inline `<svg viewBox="0 0 24 24">`
-    per tab matching the existing icon style.
+  - **Required markup (blocking, v3).** Today the four tab labels are bare
+    text nodes (`index.html:143-146`). Wrap each in `<span class="label">`
+    **and** insert the per-tab `<svg class="ico" viewBox="0 0 24 24">…</svg>`
+    as the first child of each button. `data-tab` is already present on
+    each button — keep it. This markup change is a **hard requirement**,
+    not an optional nicety: the collapse CSS
+    (`.side.collapsed .tabs button:not(#sideToggle) span { display: none }`)
+    and the `data-icon`/`.active` styling depend on it. The `index.html`
+    diff that leaves the labels as bare text is a failed implementation,
+    even if the CSS looks right.
   - Append `<button id="sideToggle" class="icon"
     aria-expanded="false" aria-controls="sideBody"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button>`
     as the fifth child of `.tabs`.
@@ -125,29 +144,73 @@ Files touched (all `public/`):
     add the fixed-drawer rules listed above; show `.side-drawer-close`;
     `.side-drawer-backdrop` styles.
 
-- `public/js/panels.js` —
-  - New: `setCollapsed(next: boolean)` — single write path for both the
-    key and the class; `aria-expanded` on `#sideToggle` tracks it.
-  - New: `matchMedia("(max-width: 900px)").addEventListener("change", apply)`
-    re-applies `setCollapsed(readCollapsed())` on breakpoint change.
-  - `#sideToggle.onclick` → `setCollapsed(!isCollapsed())`; if
-    now-collapsed, also `closeDrawer()` (mobile).
-  - `#sideDrawerClose.onclick` and `.side-drawer-backdrop.onclick` →
-    `closeDrawer()` + `clearUnseenAlerts()`.
-  - Guard: existing `renderSide()` (whichever name the current code uses
-    — the current sidebar renders into `#sideBody`) no-ops when
-    `.side.collapsed` *or* when the mobile drawer is closed. Follow the
-    existing `renderBottom` guard at `panels.js:257`.
-  - Alert-firing hook: in the existing alert render path, if
-    `isCollapsed()` (or drawer closed) set `dot` on the `.alerts` tab.
-    Clear on open+focus.
-  - Boot: `isCollapsed = readCollapsed(); setCollapsed(isCollapsed)` —
-    and if the saved tab is invalid, fall back to the first `[data-tab]`
-    id before rendering.
+- **`public/lib/sidebar-state.js` (new, small ESM, zero DOM/window/localStorage
+  imports at module scope)** — the pure state logic, extracted so `node --test`
+  can import it (see "Test plan"). This matches the repo's established test
+  pattern: `test/*.test.js` import from **`public/lib/`** (backtest, indicators,
+  series, quant), never from `public/js/`. `panels.js` cannot be imported under
+  node anyway — it runs `window.LightweightCharts` and `document` at module
+  top-level (`panels.js:26,28`). Exports:
+  - `parseCollapsed(raw)` — `boolean`; tolerant of `null`/`"1"`/`"0"`/`true`.
+  - `readCollapsed(storage, key="qt-side-collapsed")` — reads the key, returns
+    `boolean`; safe when `storage` is absent (returns `false`).
+  - `readTab(storage, validTabs, key="qt-side-tab")` — reads the tab id; on
+    missing/empty/unknown value returns `validTabs[0]`. Pure — the caller
+    passes the tab list, this function never touches the DOM.
+  - `writeCollapsed(storage, next, key="qt-side-collapsed")` — writes
+    `"1"`/`"0"`; tolerant of `storage` throwing (private/incognito mode).
+  - `ariaFor(next)` → `"true" | "false"` — single source of the aria-expanded
+    literal so writer and test agree.
+  - `reducer(state, action)` — pure reducer over the
+    `{collapsed, activeTab, drawerOpen}` tuple for
+    `"toggle" | "openDrawer" | "closeDrawer" | "select:<tab>"`. `panels.js`
+    owns the live state object and commits the result; node tests drive every
+    transition with plain objects, no `document`.
 
-Not touched: `server.js`, `lib/`, `public/lib/` (no server-side state
-change; `data/` untouched), fork-only files (`ovr-banner.js`, `ovr.js`,
-`ovr.css`), no new dependencies, no build step.
+- `public/js/panels.js` — thin importer/wiring only:
+  - `import * as side from "../lib/sidebar-state.js";`
+  - `setCollapsed(next)` wrapper: `side.writeCollapsed(localStorage, next)` →
+    `sideEl.classList.toggle("collapsed", next)` →
+    `#sideToggle.setAttribute("aria-expanded", side.ariaFor(next))` →
+    `#sideBody.setAttribute("aria-hidden", String(next))`; then if `!next`
+    and width < 900px, `openDrawer()`. **This is the single write path** —
+    class, flag, and aria all change together (prevents the class/flag drift
+    the reviewer flagged in round 1 §3).
+  - `matchMedia("(max-width:900px)").addEventListener("change", onBp)` —
+    on breakpoint change, re-applies only *drawer visibility* to the flag:
+    collapsed ⇒ drawer closed (and, at < 900px, `.side` is not rendered at
+    all via the media rule); expanded-and-narrow ⇒ open the drawer.
+    The flag itself never silently resets.
+  - `#sideToggle.onclick` → `setCollapsed(!isCollapsed())`.
+  - `#sideDrawerClose.onclick` + `.side-drawer-backdrop.onclick` →
+    `closeDrawer()` + `clearUnseenAlerts()`.
+  - **Re-open shortcut (Decision #2, v3):** a tab-button click while
+    collapsed sets `activeTab` (via `reducer`) and calls `setCollapsed(false)`
+    — expanding straight to that tab. If the drawer is already open it only
+    changes the active tab (no class flip). The existing `.tabs button.active`
+    rule (`app.css:464-467`) already provides visible selection feedback for
+    the strip, so no new selector is needed.
+  - Guard: `renderSide` (`panels.js:249`) no-ops when collapsed *or* when the
+    drawer is closed on < 900px (mirror of the `renderBottom` guard at
+    `panels.js:257`).
+  - Alert hook: in the existing alert-render path, if collapsed (or drawer
+    closed) set `data-dot="1"` on the `.alerts` tab; clear on open + focus.
+  - Boot:
+    ```js
+    const collapsed = side.readCollapsed(localStorage);
+    const activeTab = side.readTab(localStorage,
+      ["watchlist","alerts","calendar","news"]);
+    setCollapsed(collapsed);
+    showSide(activeTab);   // existing showSide(), panels.js:229
+    ```
+    The invalid-tab fallback is unit-tested where the function lives
+    (`sidebar-state.js`), not here.
+
+Not touched: `server.js`, `lib/` (the backend), `data/` (state files),
+fork-only files (`ovr-banner.js`, `ovr.js`, `ovr.css`), no new dependencies,
+no build step. (The one new `public/lib/sidebar-state.js` module is the pure
+logic home — it *is* in the touched list above; "not touched" does not claim
+`public/lib/` is off-limits, only that no backend or fork files change.)
 
 ## Out of scope (explicitly declined)
 
@@ -178,20 +241,31 @@ change; `data/` untouched), fork-only files (`ovr-banner.js`, `ovr.js`,
   - Side + bottom collapse states remain independent (collapsing one
     doesn't affect the other).
 
-**Test plan** (added per reviewer §4):
-- `test/side-collapse.test.js` (node:test) — unit-covers the pure logic:
-  - `setCollapsed(next)` writes both the `qt-side-collapsed` key and the
-    class (using jsdom or a minimal DOM stub — same approach as any
-    existing `public/js/` unit test; if no precedent exists, use an
-    in-test fake `document` and `localStorage`).
-  - `matchMedia change` handler re-applies the flag in both directions.
-  - Invalid saved tab value → falls back to the first `[data-tab]` id.
-  - `#sideToggle` `aria-expanded` tracks state.
-- Chart re-fit is covered by the *existing* `autoSize: true` mechanism
-  (`public/js/chart.js:176`) — the browser check (above) is the proof,
-  not a unit test. This is the same "verify in a browser" convention
-  the codebase uses for CSS/state transitions and matches the reviewer's
-  reading of the mechanism.
+**Test plan** (revised per reviewer §4 and the round-2 point 3):
+- **`test/sidebar-state.test.js` (node:test) — the authoritative unit
+  suite.** Imports **`../public/lib/sidebar-state.js`** (not `panels.js`),
+  matching the repo's existing pattern where `test/*.js` import from
+  `public/lib/` (backtest, indicators, series, quant). `panels.js` is not
+  importable under node — it references `window.LightweightCharts` (line 26)
+  and `document` (line 28) at module top-level, so testing it directly would
+  require a DOM shim; we do not add jsdom/happy-dom (zero-deps rule). Cases:
+  - `readCollapsed` — `null` → `false`; `"1"` → `true`; `"0"` → `false`;
+    missing key → `false`.
+  - `readTab` — valid id returned as-is; empty string / unknown id / missing
+    key → `validTabs[0]`.
+  - `writeCollapsed` — writes `"1"` and `"0"` correctly; `storage.getItem`
+    reflects the write; a throwing storage (private-mode simulation) does not
+    propagate.
+  - `reducer` — each action (`toggle`, `openDrawer`, `closeDrawer`,
+    `select:<tab>`) from each initial state yields the expected tuple;
+    idempotent actions (e.g., `toggle` twice → same state).
+  - `ariaFor` — `true` → `"true"`, `false` → `"false"`.
+- **DoD browser checklist** (not a test, just the manual proof):
+  collapse → expand round-trip on desktop; 1200 → 800 → 1200 resizes with
+  no state loss; mobile overlay drawer open/close + backdrop click;
+  `.active` highlight visible in the collapsed strip (round-2 point 1);
+  clicking a collapsed tab icon expands to that tab (the re-open shortcut);
+  alert dot appears/clears on the Alerts icon per state.
 
 ## Revision history
 
@@ -255,8 +329,43 @@ change; `data/` untouched), fork-only files (`ovr-banner.js`, `ovr.js`,
     `localStorage` calls, `Number(...) || 0` fallback on read — is
     identical to the ribbon pattern, so both are the same convention
     even though they are independent features.
+- **v3 (2026-11-04).** Follow-up to pi-agent's 3-point review of v2.
+  All three points accepted after independent verification of the
+  reviewer's premises against the tree.
+  - **Point 1 (blocking — collapsed strip was a dead-end).** v2 hid
+    the tab labels *and* `#sideBody` without specifying any selection
+    feedback in the strip, so clicking an icon gave no visible response
+    — a real v2 regression vs. the old 4-button row. Verified
+    `.tabs button.active { background: var(--hover) }` already exists
+    (`app.css:464-467`), so the fix is: re-use that rule (no new
+    selector) so the selected icon stays highlighted in the strip, and
+    add the **re-open shortcut** — a collapsed tab click both sets the
+    active tab and expands the sidebar to that tab (on < 900px it just
+    switches the open drawer's pane). The strip is now a working
+    control, not an inert rail.
+  - **Point 2 (blocking — the `<span>` wrapper was a CSS assumption,
+    not a spec).** The v2 selector hides text via `span`, but
+    `index.html:143-146` labels are bare text nodes — the markup the
+    CSS depends on was never required. Made the `<span class="label">`
+    wrapper + first-child `<svg class="ico">` a **hard requirement**
+    in the `index.html` consequences block: an `index.html` diff that
+    leaves the labels as bare text is a failed implementation even if
+    the CSS looks right.
+  - **Point 3 (blocking — the test plan was unrunnable as written).**
+    Correct. Verified `panels.js:26` (`window.LightweightCharts`) and
+    `panels.js:28` (`document`) execute at module top-level, so
+    `node --test` cannot `import` `panels.js`; and `package.json` has
+    no DOM shim, so `document`/`window`/`matchMedia` are undefined.
+    Replaced the fake-document approach with one that matches the
+    repo's actual pattern: extract the pure state logic to a new
+    `public/lib/sidebar-state.js` (DOM-free, ESM) and let
+    `test/sidebar-state.test.js` import *it* — the same
+    `public/lib/*` import path `test/*.js` already use for
+    backtest/indicators/series/quant. `panels.js` becomes a thin
+    importer/wiring layer on top of that module. This also removes
+    the implicit "add a DOM shim to `public/js`" scope creep the v2
+    plan carried.
 
-## Open risks
 
 1. **Instant chart re-fit on a CSS-driven width change.**
    `autoSize: true` (`chart.js:176`) wires lightweight-charts to a
