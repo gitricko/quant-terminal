@@ -25,7 +25,12 @@
 
 export default {
   name: "H1 Washout Low 5/5 + 4/5 (Early + Exact)",
-  overlay: true, // price chart — markers only
+  overlay: true, // price chart — markers only for the user
+  // chart.js:647 — opt every output series out of the pane's autoscale: the
+  // alert-facing arrays still hold 0/1 per bar (alerts read res via indResults),
+  // but their 0-baseline doesn't drag the price y-axis down to level 0 and
+  // compress the price range when you zoom in.
+  noAutoscale: true,
   inputs: [
     { key: "pivotLen", label: "pivotLen", type: "int", default: 4, min: 1 },
     { key: "minWickPct", label: "Min lower-wick % of range", type: "float", default: 0.40, min: 0, max: 1 },
@@ -34,6 +39,9 @@ export default {
   ],
   // Note: output keys must start with a letter (docs/custom-indicators.md), so the
   // Pine names 5of5/4of5 become early5/early4/exact5/exact4. The labels keep "5/5".
+  // These arrays are for ALERTS (see docs/custom-indicators.md §Alerts). On the
+  // chart they render as zero-height bars (invisible) because noAutoscale is set
+  // above, so the price scale keeps its full range.
   outputs: [
     { key: "early5", label: "H1 5/5 (early)", kind: "histogram", color: "#32cd32" },
     { key: "early4", label: "H1 4/5 (early)", kind: "histogram", color: "#ff8c00" },
@@ -50,8 +58,8 @@ export default {
     const L = p.pivotLen;
     const WICK = p.minWickPct;
 
-    const zero = new Array(N).fill(0);
-    const a5 = zero.slice(), a4 = zero.slice(), a5x = zero.slice(), a4x = zero.slice();
+    const a5 = new Array(N).fill(null), a4 = new Array(N).fill(null);
+    const a5x = new Array(N).fill(null), a4x = new Array(N).fill(null);
 
     // ---- 1) EARLY (in-bar): low <= lowest(low, L+1) and checks pass ----
     const lowestL1 = ta.lowest(l, L + 1); // array length N, NaN before index L
