@@ -1,10 +1,12 @@
-# ADR 0001 — Collapsible right sidebar (adopted, v2)
+# ADR 0001 — Collapsible right sidebar (adopted, v4)
 
-- Status: adopted (v3, 2026-11-04). v1 (2026-11-04) withdrawn after the 7-point
+- Status: adopted (v4, 2026-11-04). v1 (2026-11-04) withdrawn after the 7-point
   review found an internal contradiction in Decision #2; v2 (2026-11-04) fixed
   §§1–7. v3 (2026-11-04) addressed the round-2 follow-up (3 more blocking
   points: missing active-state feedback in the strip, the `<span>` markup
-  assumption, and an unrunnable test plan). See "Revision history" at the end.
+  assumption, and an unrunnable test plan). v4 (2026-11-04) fixed the
+  round-3 finding on the mobile state model. See "Revision history" at
+  the end.
 
 ## Context
 
@@ -69,34 +71,31 @@ body hides, strip carries the toggle** — not "collapse the container to zero."
    first data-tab id — don't produce a blank pane.
 
 4. **Interaction with the 900px media query — explicit.**
-   State model: **`qt-side-collapsed` is the source of truth; the DOM
-   class is a projection of it.**
+   State model (v4): **`qt-side-collapsed` is the ONLY persisted state
+   key; `qt-side-drawer-open` is a per-session transient that is
+   reset to "0" on every page load and on every breakpoint
+   crossing.** No third key, no cross-session drawer intent.
    - ≥ 900px: `qt-side-collapsed == "1"` ⇔ `.side.collapsed` present.
-   - < 900px: same key, plus one additional flag — `qt-side-drawer-open`
-     (`"1"`/`"0"`, default `"0"`). When `qt-side-collapsed == "1"` the
-     sidebar is **not rendered at all** (no push, no overlay). When
-     `qt-side-collapsed == "0"`, `#sideToggle` (and the four tab icons,
-     since the < 900px strip uses their collapsed geometry) opens an
-     **overlay drawer** above the chart: `.side` becomes
-     `position: fixed; right: 0; top: 0; bottom: 0; width: 300px; z-index: 40;
-     transform: translateX(100%)` with a `transition: transform 160ms ease-out`;
-     a translucent backdrop behind it (`.side-drawer-backdrop`, `z-index: 39`)
-     closes the drawer on click; an explicit X button (`.side-drawer-close`,
-     top-right of the drawer) also closes it. Opening the drawer does
-     **not** clear `qt-side-collapsed` — it's an overlay, not a push.
-   - Crossing 900px in either direction: the class and the key both stay
-     in sync via a single JS reducer (`setCollapsed(next: bool)`), which
-     writes both the key and the class together. A `matchMedia("(max-width:
-     900px)").addEventListener("change")` handler re-applies the reducer so
-     a resize never leaves the class and flag out of sync. That one handler
-     is the only place that touches the class/flag, and it is the only place
-     a future `classList.remove("collapsed")` can silently reset things —
-     which the reviewer's §3 concern called out; centralizing the write path
-     is the fix.
-   - If `qt-side-collapsed == "1"` when crossing 900px → the sidebar
-     disappears in both breakpoints (same "collapsed" semantic; only the
-     rendering of the strip changes — in-band 36px strip vs. no strip —
-     which is visible to the user and not a state reset).
+   - < 900px: the 4-tab strip is ALWAYS visible (36px, same rules as
+     desktop collapsed). The old `@media (max-width: 900px) {
+     .side { display: none } }` is *dropped*. Tapping any strip icon
+     or `#sideToggle` opens a transient **overlay drawer** (slide-in
+     `position: fixed; right: 0; top: 0; bottom: 0; width: 300px;
+     z-index: 40; transform: translateX(100%) → 0` with `transition:
+     transform 160ms ease-out`). A translucent backdrop
+     (`.side-drawer-backdrop`, `z-index: 39`) closes it on tap; an
+     explicit X button (`.side-drawer-close`, top-right of the drawer)
+     also closes it. The transient flag `qt-side-drawer-open`
+     (`"1"` / `"0"`, in-memory only, default `"0"`, NOT written to
+     localStorage) records which state we're in. Tapping a tab icon
+     in the strip while the drawer is open switches the drawer's
+     active pane *and* closes the drawer (tap-to-reveal pattern, no
+     lingering overlay).
+   - Crossing 900px in either direction: the `matchMedia` handler
+     calls a single writer `applyViewportState()` which (a) sets
+     `qt-side-drawer-open="0"`, (b) closes the `.side-drawer-open`
+     class and the backdrop if present, (c) re-projects
+     `qt-side-collapsed` to the `.side.collapsed` class. One handler owns the cross-breakpoint transition; no other code path touches the drawer flag after creation. A future `classList.remove("collapsed")` in a third-party script cannot silently re-open the strip because the strip's visibility is gated on the `matchMedia` state, not on the persisted key alone.
 
 5. **Alerts while collapsed.** No auto-expand (avoids jarring state
    changes mid-trade, especially on mobile). When an alert fires:
@@ -162,25 +161,33 @@ Files touched (all `public/`):
   - `ariaFor(next)` → `"true" | "false"` — single source of the aria-expanded
     literal so writer and test agree.
   - `reducer(state, action)` — pure reducer over the
-    `{collapsed, activeTab, drawerOpen}` tuple for
+    `{activeTab, stripWidth: 'wide' | 'narrow'}` tuple for
     `"toggle" | "openDrawer" | "closeDrawer" | "select:<tab>"`. `panels.js`
     owns the live state object and commits the result; node tests drive every
     transition with plain objects, no `document`.
 
 - `public/js/panels.js` — thin importer/wiring only:
   - `import * as side from "../lib/sidebar-state.js";`
-  - `setCollapsed(next)` wrapper: `side.writeCollapsed(localStorage, next)` →
+  - `setCollapsed(next)` wrapper (desktop only): `side.writeCollapsed(localStorage, next)` →
     `sideEl.classList.toggle("collapsed", next)` →
     `#sideToggle.setAttribute("aria-expanded", side.ariaFor(next))` →
-    `#sideBody.setAttribute("aria-hidden", String(next))`; then if `!next`
-    and width < 900px, `openDrawer()`. **This is the single write path** —
-    class, flag, and aria all change together (prevents the class/flag drift
-    the reviewer flagged in round 1 §3).
-  - `matchMedia("(max-width:900px)").addEventListener("change", onBp)` —
-    on breakpoint change, re-applies only *drawer visibility* to the flag:
-    collapsed ⇒ drawer closed (and, at < 900px, `.side` is not rendered at
-    all via the media rule); expanded-and-narrow ⇒ open the drawer.
-    The flag itself never silently resets.
+    `#sideBody.setAttribute("aria-hidden", String(next))`. **This is the
+    single write path for the desktop collapsed state** — key, class, and
+    aria all change together (prevents the class/flag drift the reviewer
+    flagged in round 1 §3). It does NOT open the mobile drawer; on < 900px
+    it only re-projects the strip (which is always visible) and, if the
+    drawer is open, closes it via `closeDrawer()`.
+  - `openDrawer()` / `closeDrawer()` (mobile only, DOM-side): toggle the
+    `qt-side-drawer-open` transient flag, the `.side-drawer-open` class,
+    and `.side-drawer-backdrop` visibility, move focus, and clear the
+    "unseen alerts" dot on drawer open.
+  - `applyViewportState()` (single writer for cross-breakpoint
+    transitions): `matchMedia("(max-width:900px)").addEventListener("change",
+    onBp)` calls this. It resets `qt-side-drawer-open="0"`, removes the
+    drawer class and backdrop, then re-projects `qt-side-collapsed` to the
+    `.side.collapsed` class. This is the only place the drawer flag is
+    touched by a breakpoint change, so a resize never leaves the strip and
+    the drawer in an inconsistent state.
   - `#sideToggle.onclick` → `setCollapsed(!isCollapsed())`.
   - `#sideDrawerClose.onclick` + `.side-drawer-backdrop.onclick` →
     `closeDrawer()` + `clearUnseenAlerts()`.
@@ -230,11 +237,16 @@ logic home — it *is* in the touched list above; "not touched" does not claim
     restores 300px; chart re-fits (see Risk 1 — `autoSize: true` at
     `public/js/chart.js:176` handles this, but the browser check is the
     proof); state persists across reload.
-  - Mobile (< 900px, drawer closed → open): backdrop + X both close the
-    drawer; state persists; opening the drawer does *not* clear the
-    collapsed flag (verifying the overlay/push distinction).
-  - Resize from 1200 → 800 and back: collapse state is the *same* in both
-    (same flag, same class) — no silent reset.
+  - Mobile (< 900px): strip is *always* visible (no media `display:none`).
+    Tapping a strip icon opens the overlay drawer (backdrop + X both close
+    it); state persists across reload only for the *strip* semantic — the
+    drawer itself is a per-session transient and does NOT reopen after a
+    full page reload.
+  - Resize from 800 → 1200 and back: the strip persists, the drawer is
+    closed by the crossing, `qt-side-collapsed` does not change during
+    the resize; the state at 1200px matches the pre-resize state at
+    1200px (no silent reset, no lingering overlay, no ghost "drawer
+    open" class leaking into the wide layout).
   - Alert fires while collapsed on desktop: dot appears on the Alerts
     icon in the strip; clicking it opens the sidebar on the Alerts pane
     and clears the dot.
@@ -386,6 +398,36 @@ logic home — it *is* in the touched list above; "not touched" does not claim
    match to the existing inline icons (e.g. the settings gear at
    `index.html:104`) is guaranteed.
 
+- **v4 (2026-11-04).** Round-3 finding: the sub-900px state model was
+  self-contradictory. v3's Decision #4 treated `qt-side-collapsed` as
+  the mobile state key — "collapsed==1 ⇒ not rendered at all,
+  collapsed==0 ⇒ overlay drawer." Pi-agent's point: with the strip
+  *always* visible on mobile, `qt-side-collapsed` no longer has a
+  meaningful mobile semantic; two keys with no defined precedence is
+  incoherent. Accepted — v4 redefines the mobile state model:
+  - `qt-side-collapsed` is the ONLY persisted key (single source of
+    truth on both breakpoints).
+  - `qt-side-drawer-open` is an in-memory transient, reset to "0" on
+    every page load and on every breakpoint crossing. It is NOT
+    written to `localStorage`.
+  - The old `@media (max-width: 900px) { .side { display: none } }`
+    is dropped — the 4-tab strip is always visible on mobile, same
+    36px geometry as desktop collapsed.
+  - Tapping a strip icon on mobile opens the overlay drawer (or
+    switches panes if already open). Tapping any tab to close the
+    drawer is the tap-to-reveal pattern; no lingering overlay.
+  - `matchMedia("(max-width: 900px)")` handler calls one
+    `applyViewportState()` writer that resets the transient, re-
+    projects `qt-side-collapsed`, and removes the drawer class —
+    so resize crossings never leave the strip and the drawer in
+    an inconsistent state.
+  - State tuple in `public/lib/sidebar-state.js` updated to
+    `{activeTab, stripWidth: 'wide' | 'narrow'}` (the drawer flag
+    is owned by `panels.js` and is DOM-side only, so it is not
+    part of the pure reducer state).
+  - DoD browser checklist: add "resize from 800px → 1200px and
+    back: strip persists, drawer never lingers, `qt-side-collapsed`
+    does not change during the resize."
 ## Sources / cross-references
 
 - `public/index.html:141-149` — `.side` DOM structure (`.tabs` +
