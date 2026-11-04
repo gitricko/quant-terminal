@@ -1,7 +1,8 @@
-// Port of pine: h1_washout_low_5of5_4of5 (Pine v6) — "H1 Washout Low 5/5 + 4/5 (Early + Exact)"
+// Washout Low — port of the Pine v6 script
+//   h1_washout_low_5of5_4of5.pine  ("H1 Washout Low 5/5 + 4/5 (Early + Exact)")
 // Reference backtest: data/tmp/README.md (H1 washout low from spy_2026-10-15.md §5b).
 //
-// A bar is an "H1 washout low" when:
+// A bar is a "washout low" when:
 //   EARLY  mode: low <= lowest(low, pivotLen+1)  [candidate, fires in-bar]
 //   EXACT  mode: ta.pivotlow(low, pivotLen, pivotLen) confirmed  [fires pivotLen bars late]
 // and 4 or 5 of the 5 checks pass:
@@ -11,7 +12,7 @@
 //   4. volume expansion: volume > volume[-1]
 //   5. net-red prior 2 bars: sign(c-o)*v  [at -1 and -2]  sums < 0
 //
-// Outputs (0/1 per bar, for alerts; see docs/custom-indicators.md §Alerts):
+// Outputs (for alerts; see docs/custom-indicators.md §Alerts):
 //   early5, early4  — early (candidate, left-only)
 //   exact5, exact4  — exact (ta.pivotlow, delayed by pivotLen)
 //   (Pine's "5of5/4of5" names can't be output keys here — must start with a letter.)
@@ -19,12 +20,10 @@
 // Markers on the price chart (below the low), matching Pine plotshape:
 //   triangle-up (lime)     = 5/5
 //   circle     (orange)    = 4/5
-//   exact-mode markers carry " (E)" in their text (Pine: offset=-pivotLen puts it
-//   on the pivot bar; we do the same by firing on the confirmed bar with the
-//   " (E)" text).
+//   exact-mode markers carry " (X)" in their text (matches the Pine original).
 
 export default {
-  name: "H1 Washout Low 5/5 + 4/5 (Early + Exact)",
+  name: "Washout Low",
   overlay: true, // price chart — markers only for the user
   // chart.js:647 — opt every output series out of the pane's autoscale: the
   // alert-facing arrays still hold 0/1 per bar (alerts read res via indResults),
@@ -120,8 +119,8 @@ export default {
     for (let i = 0; i < N; i++) {
       if (a5[i]  === 1) put(i, "arrowUp", "#32cd32", "H1 5/5");
       if (a4[i]  === 1) put(i, "circle",  "#ff8c00", "H1 4/5");
-      if (a5x[i] === 1) put(i, "arrowUp", "#32cd32", "H1 5/5 (E)");
-      if (a4x[i] === 1) put(i, "circle",  "#ff8c00", "H1 4/5 (E)");
+      if (a5x[i] === 1) put(i, "arrowUp", "#32cd32", "H1 5/5 (X)");
+      if (a4x[i] === 1) put(i, "circle",  "#ff8c00", "H1 4/5 (X)");
     }
 
     return { early5: a5, early4: a4, exact5: a5x, exact4: a4x, markers };
