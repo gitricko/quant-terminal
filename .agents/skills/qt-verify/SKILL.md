@@ -40,6 +40,30 @@ node --test test/indicators.test.js   # one file
 - **ETIMEDOUT / "ran for over N minutes"** → a hang. The timeout guard is there so a stuck test
   becomes a FAIL, not an infinite wait. Find the un-awaited promise or infinite loop.
 
+## Browser-verified UI changes (when you touch `public/js/`, `public/css/`, or `public/index.html`)
+
+`npm run check` can be READY while the feature is still broken in a real browser. Four rules
+(full CDP recipe in `references/browser-ui.md`):
+
+1. **`element.click()` in a synthetic test is a lie for delegated handlers.** It sets
+   `e.target === element`, so a handler reading `e.target.dataset.x` passes — but a real user's
+   pointer lands on a child (`<svg>`, `<span>`) without `dataset.x` and the handler no-ops.
+   Handlers must resolve via `e.target.closest("button[...]")`, and verification must dispatch a
+   real CDP mouse event at the *child's* coordinate, never `button.click()`.
+2. **Measure every button against its container, in every state.** "Panel opened to 300px" can
+   still be broken if the five buttons inside total 401px (last two silently clipped). The
+   state-transition check (opened/closed/width=X) proves nothing about which children are
+   visible. `getBoundingClientRect()` each button and assert it fits the panel's left/right
+   band in expanded, rail, mobile-rail, and mobile-drawer states.
+3. **Base CSS placed after an `@media` block overrides it** (equal specificity, last-wins).
+   A "fix" for the mobile rail silently reverts if the base rule sits below the `(max-width:900px)`
+   block. New base rules go *above* the media block, or the browser's computed style will
+   disagree with your source order.
+4. **Record ADR geometry divergence as a new revision entry, never a silent number swap.**
+   If the shipped rail/drawer is 72px but the signed ADR says 36px, add a vN revision entry
+   stating the reason, the new number, and the commit SHA — a silent change voids the prior
+   reviewer's sign-off.
+
 ## Sandbox caveats
 
 - `npm run test:live` is **intentionally excluded** from `npm test` and CI — it needs live
@@ -51,4 +75,8 @@ node --test test/indicators.test.js   # one file
 - `npm run check` → READY (or a written justification in the PR if the sandbox can't reach
   providers — state which steps passed).
 - No new deps, no `node_modules/` in the diff.
+- **ADR consistency**: if the implementation's geometry diverges from the last signed ADR
+  revision (widths, selector scope, layout direction), add a new `vN` revision entry stating
+  the old number, the new number, the reason, and the commit SHA. A silent number swap voids
+  the prior reviewer's sign-off.
 - Feature branch, not `main`.
