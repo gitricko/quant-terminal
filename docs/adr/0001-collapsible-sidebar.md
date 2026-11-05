@@ -1,6 +1,6 @@
-# ADR 0001 — Collapsible right sidebar (adopted, v7)
+# ADR 0001 — Collapsible right sidebar (adopted, v8)
 
-- Status: adopted (v6, 2026-11-05). v1 (2026-11-04) withdrawn after the 7-point
+- Status: adopted (v8, 2026-11-05). v1 (2026-11-04) withdrawn after the 7-point
   review found an internal contradiction in Decision #2; v2 (2026-11-04) fixed
   §§1–7. v3 (2026-11-04) addressed the round-2 follow-up (3 more blocking
   points: missing active-state feedback in the strip, the `<span>` markup
@@ -61,7 +61,7 @@ body hides, strip carries the toggle** — not "collapse the container to zero."
    the persisted flag (round-4 fix). The mobile rail is 36px wide with
    18px icons; the drawer (`#sideToggle` tap) opens a 300px fixed
    overlay with the horizontal tab row + labels restored + `#sideBody`
-   visible; X / backdrop / tab-select closes it. In both stripped
+   visible; X / backdrop close it. In both stripped
    states the tab buttons render **icon-only**; each tab button carries
    an inline SVG (matching
    the style of the existing `#bottomToggle` icon and the nine other
@@ -113,8 +113,11 @@ body hides, strip carries the toggle** — not "collapse the container to zero."
      (`"1"` / `"0"`, in-memory only, default `"0"`, NOT written to
      localStorage) records which state we're in. Tapping a tab icon
      in the strip while the drawer is open switches the drawer's
-     active pane *and* closes the drawer (tap-to-reveal pattern, no
-     lingering overlay).
+     active pane; the drawer **stays open** so the user can move between
+     panes without re-opening (round-6 contract; the earlier
+     tap-to-reveal-close reading was a misread of the round-2 re-open
+     shortcut, corrected here). Escape, X, and the backdrop are the
+     close paths.
    - Crossing 900px in either direction: the `matchMedia` handler
      calls a single writer `applyViewportState()` which (a) sets
      `qt-side-drawer-open="0"`, (b) closes the `.side-drawer-open`
@@ -191,76 +194,86 @@ Files touched (all `public/`):
   series, quant), never from `public/js/`. `panels.js` cannot be imported under
   node anyway — it runs `window.LightweightCharts` and `document` at module
   top-level (`panels.js:26,28`). Exports:
-  - `parseCollapsed(raw)` — `boolean`; tolerant of `null`/`"1"`/`"0"`/`true`.
-  - `readCollapsed(storage, key="qt-side-collapsed")` — reads the key, returns
-    `boolean`; safe when `storage` is absent (returns `false`).
-  - `readTab(storage, validTabs, key="qt-side-tab")` — reads the tab id; on
-    missing/empty/unknown value returns `validTabs[0]`. Pure — the caller
-    passes the tab list, this function never touches the DOM.
-  - `writeCollapsed(storage, next, key="qt-side-collapsed")` — writes
-    `"1"`/`"0"`; tolerant of `storage` throwing (private/incognito mode).
-  - `ariaFor(next)` → `"true" | "false"` — single source of the aria-expanded
-    literal so writer and test agree.
-  - `reducer(state, action)` — pure reducer over the
-    `{activeTab, stripWidth: 'wide' | 'narrow'}` tuple for
-    `"toggle" | "openDrawer" | "closeDrawer" | "select:<tab>"`. `panels.js`
-    owns the live state object and commits the result; node tests drive every
-    transition with plain objects, no `document`.
+  - `readCollapsed(storage)` — `boolean`; only the literal `"1"` is
+    truthy, everything else (missing, `"0"`, garbage, `null` storage,
+    throwing storage) degrades to `false`.
+  - `readTab(storage, validTabs = VALID_TABS)` — returns the stored tab
+    id only if it's in `validTabs`; missing/empty/unknown/null-storage
+    all fall back to `VALID_TABS[0]`.
+  - `writeCollapsed(storage, boolean)` — writes `"1"`/`"0"`; tolerant
+    of storage throwing (private/incognito mode); returns a success
+    bool. Deliberately does not touch the drawer key (drawer is a
+    per-session transient, not persisted).
+  - `isMobile(mq)` — `boolean`; falsy `mq` (node test context) returns
+    `false`, otherwise `Boolean(mq.matches)`.
+  - `project({ collapsed, isMobile, drawerOpen })` → pure record of
+    class/attribute booleans the DOM should reflect. Every emitted
+    field is consumed by `applyState()` in `panels.js`, so the module's
+    contract matches its caller and no exported surface goes unobserved
+    (round-6 point 3: no dead export — `stripLabelHidden` was removed
+    in v8 for that reason; CSS handles label visibility from the
+    `.collapsed` class directly).
+  - `reduce(state, event)` — pure state transition over
+    `{activeTab, collapsed, drawerOpen}` for
+    `"toggle" | "openDrawer" | "closeDrawer" | "select:<tab>"`.
+    `panels.js` drives the real state object with `applyState()` and
+    applies `project()` on the result; node tests exercise every
+    transition with plain objects and no `document`. `select:<tab>`
+    sets `activeTab` and leaves `collapsed` and `drawerOpen` unchanged
+    (round-6 locked contract: tapping a tab on mobile never closes the
+    drawer).
 
-- `public/js/panels.js` — thin importer/wiring only:
-  - `import * as side from "../lib/sidebar-state.js";`
-  - `setCollapsed(next)` wrapper (desktop only): `side.writeCollapsed(localStorage, next)` →
-    `sideEl.classList.toggle("collapsed", next)` →
-    `#sideToggle.setAttribute("aria-expanded", side.ariaFor(next))` →
-    `#sideBody.setAttribute("aria-hidden", String(next))`. **This is the
-    single write path for the desktop collapsed state** — key, class, and
-    aria all change together (prevents the class/flag drift the reviewer
-    flagged in round 1 §3). It does NOT open the mobile drawer; on < 900px
-    it only re-projects the strip (which is always visible) and, if the
-    drawer is open, closes it via `closeDrawer()`.
-  - `openDrawer()` / `closeDrawer()` (mobile only, DOM-side): toggle the
-    `qt-side-drawer-open` transient flag, the `.side-drawer-open` class,
-    and `.side-drawer-backdrop` visibility, move focus, and clear the
-    "unseen alerts" dot on drawer open.
-  - `applyViewportState()` (single writer for cross-breakpoint
-    transitions): `matchMedia("(max-width:900px)").addEventListener("change",
-    onBp)` calls this. It resets `qt-side-drawer-open="0"`, removes the
-    drawer class and backdrop, then re-projects `qt-side-collapsed` to the
-    `.side.collapsed` class. This is the only place the drawer flag is
-    touched by a breakpoint change, so a resize never leaves the strip and
-    the drawer in an inconsistent state.
-  - `#sideToggle.onclick` → branch on `matchMedia("(max-width:900px)").matches`:
-    - ≥ 900px: `setCollapsed(!isCollapsed())` (toggles the persisted key + class).
-    - < 900px: `toggleDrawer()` (toggles `qt-side-drawer-open` transient;
-      drawer open ⇔ `closeDrawer()`, closed ⇔ `openDrawer()`). **Not** a
-      no-op — on the v5 mobile baseline, the strip is always 36px and a
-      class-based toggle would have nothing to toggle. `aria-expanded`
-      reflects the branch it took (persisted collapse on desktop, transient
-      drawer open state on mobile).
-    - Same chevron, same rotation, same idiom as `#bottomToggle`.
-  - `#sideDrawerClose.onclick` + `.side-drawer-backdrop.onclick` →
-    `closeDrawer()` + `clearUnseenAlerts()`.
-  - **Re-open shortcut (Decision #2, v3):** a tab-button click while
-    collapsed sets `activeTab` (via `reducer`) and calls `setCollapsed(false)`
-    — expanding straight to that tab. If the drawer is already open it only
-    changes the active tab (no class flip). The existing `.tabs button.active`
-    rule (`app.css:464-467`) already provides visible selection feedback for
-    the strip, so no new selector is needed.
-  - Guard: `renderSide` (`panels.js:249`) no-ops when collapsed *or* when the
-    drawer is closed on < 900px (mirror of the `renderBottom` guard at
-    `panels.js:257`).
-  - Alert hook: in the existing alert-render path, if collapsed (or drawer
-    closed) set `data-dot="1"` on the `.alerts` tab; clear on open + focus.
-  - Boot:
+- `public/js/panels.js` — thin importer/wiring only. Single-writer
+  discipline: one function, `applyState()`, re-projects the current
+  `collapsed` / `drawerOpen` flags through `project()` and writes every
+  class and attribute. No other path touches the `.collapsed`,
+  `.side-drawer-open`, `.active` backdrop, `aria-expanded`,
+  `aria-hidden`, `role`, or `aria-modal` surfaces.
+  - `import { ..., project, reduce, readCollapsed, readTab, writeCollapsed,
+    isMobile, MOBILE_QUERY }` from `../lib/sidebar-state.js`.
+  - Closure state at module scope (no globals): `collapsed`,
+    `drawerOpen`, `sideRendered` (render-once latch to avoid re-rendering
+    the side body every time we re-project after a no-op click).
+  - `applyState()` — single writer; consumes every `project()` field:
     ```js
-    const collapsed = side.readCollapsed(localStorage);
-    const activeTab = side.readTab(localStorage,
-      ["watchlist","alerts","calendar","news"]);
-    setCollapsed(collapsed);
-    showSide(activeTab);   // existing showSide(), panels.js:229
+    sideEl.classList.toggle("collapsed", p.collapsedClass);
+    sideEl.classList.toggle("side-drawer-open", p.drawerClass);
+    backdropEl.classList.toggle("active", p.drawerClass);
+    toggleEl.setAttribute("aria-expanded", String(p.ariaExpanded));
+    const sideBody = $("#sideBody");
+    if (sideBody) sideBody.setAttribute("aria-hidden", String(p.sideBodyHidden));
+    sideEl.setAttribute("role", p.drawerClass ? "dialog" : "complementary");
+    sideEl.setAttribute("aria-modal", String(p.drawerClass));
+    if (p.bodyVisible && !sideRendered) { sideRendered = true; renderSide(); }
     ```
-    The invalid-tab fallback is unit-tested where the function lives
-    (`sidebar-state.js`), not here.
+    This is the round-1 §3 fix: key, class, aria all move together
+    through one function.
+  - `applyDesktop()` = `applyState()` when we're on the desktop toggle path.
+  - `applyDrawer()` = `applyState()` + focus the aside (`sideEl.focus()`,
+    valid because `<aside class="side" tabindex="-1">`). Escape
+    close is a `document.addEventListener("keydown")` registered once,
+    closing the drawer when `Escape` fires and `drawerOpen` is true.
+  - `toggleEl.onclick` — desktop branch writes `writeCollapsed(...)` +
+    flips `collapsed` + `applyState()`; mobile branch flips
+    `drawerOpen` + `applyDrawer()` (never touches the persisted flag).
+  - `drawerCloseEl.onclick` + `backdropEl.onclick` → `closeDrawer()`.
+  - Re-open shortcut (Decision #2, v3) now lives in `selectSideTab`'s
+    desktop branch: if `collapsed`, unset it, persist, and re-project.
+    On mobile the same tap switches panes *and leaves the drawer open*
+    (round-6 contract) — no close, no re-open.
+  - `matchMedia(MOBILE_QUERY)` change handler `onBp` — closes the
+    transient drawer, re-reads the persisted flag (self-heals
+    hand-edited storage), and re-projects. This is the only
+    cross-breakpoint writer; a resize never leaves the strip and the
+    drawer in an inconsistent state.
+  - Alert hook: `P.onAlertFired` in the existing alert-render path sets
+    `data-dot="1"` on the Alerts tab button (unconditional CSS `::after`
+    dot). `showSide("alerts")` clears the dot. The dot persists across
+    the three geometries (expanded, desktop rail, mobile rail) because
+    it is attribute-driven, not media-split — this is the round-6
+    "folding the impl back into the ADR" the reviewer anticipated.
+  - Boot: `collapsed = readCollapsed(localStorage)`,
+    `activeTab = readTab(localStorage)`, `applyState()`, `showSide(activeTab)`.
 
 Not touched: `server.js`, `lib/` (the backend), `data/` (state files),
 fork-only files (`ovr-banner.js`, `ovr.js`, `ovr.css`), no new dependencies,
@@ -470,9 +483,13 @@ logic home — it *is* in the touched list above; "not touched" does not claim
   - The old `@media (max-width: 900px) { .side { display: none } }`
     is dropped — the 4-tab strip is always visible on mobile, same
     36px geometry as desktop collapsed.
-  - Tapping a strip icon on mobile opens the overlay drawer (or
-    switches panes if already open). Tapping any tab to close the
-    drawer is the tap-to-reveal pattern; no lingering overlay.
+  - Tapping the strip's `#sideToggle` on mobile opens the drawer; while
+    it is open, tapping a **tab** icon just switches panes (drawer stays
+    open — the user can browse all four panes). Escape, X, and the
+    backdrop close it. There is no "tap any tab to close the drawer"
+    path — the round-2 "re-open shortcut" was a rail affordance (tap a
+    hidden tab reveals the panel on that tab), not a close rule, and v8
+    records this so the two are not conflated.
   - `matchMedia("(max-width: 900px)")` handler calls one
     `applyViewportState()` writer that resets the transient, re-
     projects `qt-side-collapsed`, and removes the drawer class —
@@ -542,6 +559,62 @@ logic home — it *is* in the touched list above; "not touched" does not claim
     resolves to the enclosing tab button, so icon, label, and padding
     all route correctly.
   - H1 and status updated to `v7`.
+
+- **v8 (2026-11-05).** Round-6 review folded in: one blocking drift,
+  two a11y gaps, one moderate dead-field note, two non-blocking
+  comments. All of the reviewer's substantive points verified against
+  the tree, not accepted on faith:
+
+  - **Blocking — tap-to-reveal contract (resolved per owner).** The
+    ADR and the `reduce()` branch claimed "tap a tab → close the
+    drawer" but the runtime (`selectSideTab()`) kept the drawer open.
+    User decision: **drawer stays open on tab tap** — the re-open
+    shortcut is a *rail* affordance, not a close rule. Code:
+    `reduce('select:<tab>')` now sets `activeTab` only (drawer and
+    `collapsed` untouched). Test: the two
+    `select:` pins updated to the new contract. ADR: Decision #4,
+    the Consequences bullets, and the DoD wording all read
+    "switches panes; drawer stays open; Escape / X / backdrop close
+    it".
+  - **Critical #1 — a11y (partially corrected).** The claim that
+    `aria-expanded` was "set nowhere in `applyDrawer()`" is factually
+    wrong at `66f4d2c` — it was `panels.js:256` (drawer) and
+    `panels.js:249` (desktop), both present in the reviewed commit.
+    What WAS missing and is now fixed: **Escape** closes the drawer
+    (single `keydown` listener, no duplicate on re-render) and
+    **focus lands in the overlay** when it opens
+    (`<aside class="side" tabindex="-1">` + `sideEl.focus()` inside
+    `applyDrawer()`). Also added `role="dialog"` + `aria-modal` on
+    the drawer, and `aria-hidden` on `#sideBody` when hidden — all
+    through the single writer.
+  - **Critical #2 — dead exported surface.** `stripLabelHidden`
+    was computed by `project()` but never consumed (CSS classes are
+    the real source). Removed from `project()`'s output and from
+    every test pin. Remaining `project()` fields
+    (`collapsedClass`, `drawerClass`, `bodyVisible`, `ariaExpanded`,
+    `sideBodyHidden`) are all consumed by `applyState()` — verified
+    by grep, no `bodyVisible`/`sideBodyHidden`/`stripLabelHidden`
+    orphans.
+  - **Moderate — single-writer discipline tightened.** `applyState()`
+    is now the *only* function that writes `.collapsed`,
+    `.side-drawer-open`, `.active`, `aria-expanded`, `aria-hidden`,
+    `role`, or `aria-modal`. `applyDesktop()`, `applyDrawer()`, and
+    `onBp` all route through it. `sideRendered` latch replaces the
+    old `if (!collapsed) renderSide()` so the body isn't re-rendered
+    on no-op clicks.
+  - **Notes (accepted as written).** `onBp` re-reading storage on
+    every breakpoint crossing self-heals hand-edited keys — kept.
+    Sub-pixel rail-button height artifact (28 + 2×2 vs 31) matches
+    measured box, not a bug.
+  - **ADR-vs-code drift cleaned up.** The ADR named functions that
+    did not exist (`setCollapsed`, `applyViewportState`, `ariaFor`,
+    `parseCollapsed`); the actual code had `applyState()`,
+    `applyDrawer()`, `applyDesktop()`, `reduce`, `project`. This
+    revision rewrites both the `sidebar-state.js` export checklist,
+    the `panels.js` wiring checklist, and the Consequences bullet to
+    match the shipped code — so the ADR no longer describes a
+    different architecture than the one running.
+  - H1 and status updated to `v8`.
 
 ## Sources / cross-references
 

@@ -958,6 +958,11 @@ h4 {
 .side {
   flex-direction: column;
 }
+/* tabindex=-1 lets the mobile drawer grab focus for keyboard users without
+   a visible outline (the overlay itself is the focus target). */
+.side:focus {
+  outline: none;
+}
 .side #sideTabs {
   flex-direction: row;
   align-items: center;

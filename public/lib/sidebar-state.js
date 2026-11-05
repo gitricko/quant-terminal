@@ -64,12 +64,14 @@ export function project({ collapsed = false, isMobile = false, drawerOpen = fals
     bodyVisible,
     ariaExpanded: isMobile ? drawerOpen : !collapsed,
     sideBodyHidden: !bodyVisible,
-    stripLabelHidden: isMobile || collapsed,
   };
 }
 
 // Pure reducer over {activeTab, collapsed, drawerOpen}.
-// 'select:<tab>' is tap-to-reveal: set the tab AND close the drawer.
+// 'select:<tab>' switches the tab and leaves the drawer (and the desktop
+// flag) alone — a tap in the mobile rail never closes the drawer
+// (round-6 contract, ADR v8). The live DOM path is panels.js
+// selectSideTab(); this reducer locks the state rules it applies.
 export function reduce(state, event) {
   switch (event) {
     case 'toggle':
@@ -82,7 +84,7 @@ export function reduce(state, event) {
       if (event.startsWith('select:')) {
         const tab = event.slice('select:'.length);
         if (VALID_TABS.includes(tab)) {
-          return { ...state, activeTab: tab, drawerOpen: false };
+          return { ...state, activeTab: tab };
         }
       }
       return state;

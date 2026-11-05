@@ -77,7 +77,6 @@ test('project: desktop default — expanded', () => {
     bodyVisible: true,
     ariaExpanded: true,
     sideBodyHidden: false,
-    stripLabelHidden: false,
   });
 });
 
@@ -88,15 +87,13 @@ test('project: desktop collapsed', () => {
     bodyVisible: false,
     ariaExpanded: false,
     sideBodyHidden: true,
-    stripLabelHidden: true,
   });
 });
 
 test('project: KEY RULE — mobile ignores the persisted collapsed flag', () => {
   const p = project({ collapsed: true, isMobile: true });
   assert.equal(p.collapsedClass, false, 'no .collapsed class below the breakpoint');
-  assert.equal(p.bodyVisible, false);
-  assert.equal(p.stripLabelHidden, true);
+  assert.equal(p.bodyVisible, false, 'collapsed flag is inert on mobile: drawer closed');
 });
 
 test('project: mobile drawer open drives visibility', () => {
@@ -122,13 +119,14 @@ test('reduce: openDrawer / closeDrawer', () => {
   assert.equal(reduce(s0, 'openDrawer').collapsed, false);
 });
 
-test('reduce: select:<tab> sets tab and closes the drawer (tap-to-reveal)', () => {
+test('reduce: select:<tab> sets tab and LEAVES the drawer open (ADR v8 contract)', () => {
   const s0 = { activeTab: 'watchlist', collapsed: false, drawerOpen: true };
   const s1 = reduce(s0, 'select:calendar');
-  assert.deepEqual(s1, { activeTab: 'calendar', collapsed: false, drawerOpen: false });
+  assert.deepEqual(s1, { activeTab: 'calendar', collapsed: false, drawerOpen: true });
   const s2 = reduce(s1, 'select:news');
   assert.equal(s2.activeTab, 'news');
-  assert.equal(s2.drawerOpen, false);
+  assert.equal(s2.drawerOpen, true, 'drawer stays open on tab switch');
+  assert.equal(s2.collapsed, false, 'desktop flag untouched either');
 });
 
 test('reduce: unknown or invalid events return state unchanged', () => {
@@ -136,5 +134,5 @@ test('reduce: unknown or invalid events return state unchanged', () => {
   assert.equal(reduce(s0, 'bogus'), s0, 'same reference for unknown event');
   assert.equal(reduce(s0, 'select:banana'), s0, 'invalid tab left untouched');
   assert.equal(reduce(s0, 'select:'), s0);
-  assert.deepEqual(reduce(s0, 'select:calendar'), { activeTab: 'calendar', collapsed: true, drawerOpen: false });
+  assert.deepEqual(reduce(s0, 'select:calendar'), { activeTab: 'calendar', collapsed: true, drawerOpen: true });
 });

@@ -244,17 +244,36 @@ export function initPanels(app) {
   // exists. project() decides visibility, so on mobile `collapsed` never
   // produces the .collapsed class (the 36px rail is the CSS baseline).
   function applyDesktop() {
-    const p = project({ collapsed, isMobile: isMobile(window.matchMedia(MOBILE_QUERY)) });
-    sideEl.classList.toggle("collapsed", p.collapsedClass);
-    toggleEl.setAttribute("aria-expanded", String(p.ariaExpanded));
-    if (!collapsed) renderSide();
+    applyState();
   }
-  // Mobile drawer: fixed overlay + backdrop; render so the body has content.
+  // Single writer: re-project the current flags through the pure module and
+  // let the DOM match it. Every field the module emits is consumed here.
+  // Rendering the body is the caller's job (showSide / explicit expand
+  // paths): renderSide is a const arrow declared later in the module (TDZ),
+  // and re-rendering on every class flip would thrash.
+  function applyState() {
+    const p = project({
+      collapsed,
+      isMobile: isMobile(window.matchMedia(MOBILE_QUERY)),
+      drawerOpen,
+    });
+    sideEl.classList.toggle("collapsed", p.collapsedClass);
+    sideEl.classList.toggle("side-drawer-open", p.drawerClass);
+    backdropEl.classList.toggle("active", p.drawerClass);
+    // aria-expanded tracks the drawer on mobile, the flag on desktop.
+    toggleEl.setAttribute("aria-expanded", String(p.ariaExpanded));
+    // aria-hidden keeps the strip's body out of the a11y tree when hidden.
+    const sideBody = $("#sideBody");
+    if (sideBody) sideBody.setAttribute("aria-hidden", String(p.sideBodyHidden));
+    sideEl.setAttribute("role", p.drawerClass ? "dialog" : "complementary");
+    sideEl.setAttribute("aria-modal", String(p.drawerClass));
+  }
+  // Mobile drawer: focus must land in the overlay so keyboard users can get
+  // in and out (ADR v8 minimums); `tabindex="-1"` on the aside is required
+  // for sideEl.focus() below.
   function applyDrawer() {
-    sideEl.classList.toggle("side-drawer-open", drawerOpen);
-    backdropEl.classList.toggle("active", drawerOpen);
-    toggleEl.setAttribute("aria-expanded", String(drawerOpen));
-    if (drawerOpen) renderSide();
+    applyState();
+    if (drawerOpen) sideEl.focus();
   }
   function closeDrawer() {
     drawerOpen = false;
@@ -275,12 +294,19 @@ export function initPanels(app) {
   };
   drawerCloseEl.onclick = () => closeDrawer();
   backdropEl.onclick = () => closeDrawer();
+  // Escape closes the drawer regardless of where focus is. Bound once so a
+  // later re-render cannot register a duplicate listener.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && drawerOpen) closeDrawer();
+  });
 
   function selectSideTab(t) {
     if (isMobile(window.matchMedia(MOBILE_QUERY))) {
       // Mobile: rail is the CSS baseline (no collapsed class). Selecting a
-      // tab opens the drawer on that tab (tap-to-reveal) — matches ADR v6 and
-      // the round-2 "re-open shortcut" (click reveals the panel on that tab).
+      // tab opens the drawer on that tab (ADR v8: drawer stays open so the
+      // user can move between panes). The round-2 re-open shortcut and
+      // the v8 tab-switch rule compose cleanly: a first tap reveals,
+      // subsequent taps navigate.
       sideTab = t;
       drawerOpen = true;
       applyDrawer();
@@ -309,20 +335,16 @@ export function initPanels(app) {
     if (btn) selectSideTab(btn.dataset.tab);
   };
 
-  // Breakpoint change: drop the transient drawer and reconcile the desktop
-  // flag straight from storage (rail is baseline below 900px).
+  // Breakpoint change: drop the transient drawer and re-project from storage
+  // (the rail is baseline below 900px, so the desktop flag can no longer
+  // apply here).
   const mq = window.matchMedia(MOBILE_QUERY);
   const onBp = () => {
     if (drawerOpen) closeDrawer();
-    const c = readCollapsed(window.localStorage);
-    if (c !== collapsed) {
-      collapsed = c;
-      applyDesktop();
-    }
-    sideEl.classList.toggle(
-      "collapsed",
-      collapsed && !isMobile(window.matchMedia(MOBILE_QUERY))
-    );
+    // Re-read the persisted flag (self-heals hand-edited storage) and
+    // re-project: `isMobile` changed, so the class set must be recomputed.
+    collapsed = readCollapsed(window.localStorage);
+    applyState();
   };
   if (mq && typeof mq.addEventListener === "function")
     mq.addEventListener("change", onBp);
