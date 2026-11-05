@@ -302,8 +302,11 @@ export function initPanels(app) {
     showSide(t);
   }
   $("#sideTabs").onclick = (e) => {
-    const t = e.target.dataset.tab;
-    if (t) selectSideTab(t);
+    // Resolve from the clicked element up to the tab button. Clicks land on
+    // the inner <svg> or <span class="label">, which have no data-tab —
+    // reading e.target.dataset.tab directly would drop them.
+    const btn = e.target.closest("button[data-tab]");
+    if (btn) selectSideTab(btn.dataset.tab);
   };
 
   // Breakpoint change: drop the transient drawer and reconcile the desktop
