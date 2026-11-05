@@ -1,15 +1,18 @@
-# ADR 0001 — Collapsible right sidebar (adopted, v5)
+# ADR 0001 — Collapsible right sidebar (adopted, v6)
 
-- Status: adopted (v5, 2026-11-05). v1 (2026-11-04) withdrawn after the 7-point
+- Status: adopted (v6, 2026-11-05). v1 (2026-11-04) withdrawn after the 7-point
   review found an internal contradiction in Decision #2; v2 (2026-11-04) fixed
   §§1–7. v3 (2026-11-04) addressed the round-2 follow-up (3 more blocking
   points: missing active-state feedback in the strip, the `<span>` markup
   assumption, and an unrunnable test plan). v4 (2026-11-04) fixed the
-  round-3 finding on the mobile state model. v5 (2026-11-05) addresses the
+  round-3 finding on the mobile state model. v5 (2026-11-05) addressed the
   round-4 residual — the CSS rail geometry wasn't driven from media state
   on mobile — by moving the 36px rules into the `(max-width:900px)` media
   block so they apply independently of the persisted `qt-side-collapsed`
-  key. See "Revision history" at the end.
+  key. v6 (2026-11-05) folds in pi-agent's round-5 sign-off
+  recommendation: on <900px `#sideToggle` is a **drawer** toggle (not a
+  class toggle, which would have been a no-op on the always-36px mobile
+  rail). See "Revision history" at the end.
 
 ## Context
 
@@ -219,7 +222,15 @@ Files touched (all `public/`):
     `.side.collapsed` class. This is the only place the drawer flag is
     touched by a breakpoint change, so a resize never leaves the strip and
     the drawer in an inconsistent state.
-  - `#sideToggle.onclick` → `setCollapsed(!isCollapsed())`.
+  - `#sideToggle.onclick` → branch on `matchMedia("(max-width:900px)").matches`:
+    - ≥ 900px: `setCollapsed(!isCollapsed())` (toggles the persisted key + class).
+    - < 900px: `toggleDrawer()` (toggles `qt-side-drawer-open` transient;
+      drawer open ⇔ `closeDrawer()`, closed ⇔ `openDrawer()`). **Not** a
+      no-op — on the v5 mobile baseline, the strip is always 36px and a
+      class-based toggle would have nothing to toggle. `aria-expanded`
+      reflects the branch it took (persisted collapse on desktop, transient
+      drawer open state on mobile).
+    - Same chevron, same rotation, same idiom as `#bottomToggle`.
   - `#sideDrawerClose.onclick` + `.side-drawer-backdrop.onclick` →
     `closeDrawer()` + `clearUnseenAlerts()`.
   - **Re-open shortcut (Decision #2, v3):** a tab-button click while
@@ -283,6 +294,14 @@ logic home — it *is* in the touched list above; "not touched" does not claim
     and clears the dot.
   - Side + bottom collapse states remain independent (collapsing one
     doesn't affect the other).
+  - **Mobile `#sideToggle` is not a no-op.** On <900px, first tap opens
+    the overlay drawer (`.side-drawer-open` + backdrop visible,
+    `aria-expanded="true"`); second tap closes it (drawer class +
+    backdrop removed, `aria-expanded="false"`, strip returns to the
+    36px baseline). `qt-side-collapsed` is unchanged by either tap
+    (it's a desktop affordance and should not be written on mobile).
+    The chevron rotation reflects the drawer state, not the collapsed
+    class.
 
 **Test plan** (revised per reviewer §4 and the round-2 point 3):
 - **`test/sidebar-state.test.js` (node:test) — the authoritative unit
@@ -481,6 +500,23 @@ logic home — it *is* in the touched list above; "not touched" does not claim
     is removed (was at `app.css:950-953`); the new baseline mobile rail
     rules and the drawer-only conditional rules replace it.
   - H1 and status updated to `v5`, date 2026-11-05.
+
+- **v6 (2026-11-05).** Round-5 sign-off: the review passed (both round-4
+  findings verified resolved in the committed tree), plus one design
+  clarity recommendation. Adopting it because it's correct: the ADR's
+  toggle section said `#sideToggle` always toggles `qt-side-collapsed` →
+  `.side.collapsed`. But on <900px the rail is the *baseline* (v5), so a
+  class toggle there is a no-op tap — a button that does nothing is worse
+  than no button (same "coherent on the page, broken at the state that
+  matters" class as prior rounds). Changes:
+  - `#sideToggle.onclick` now branches on `matchMedia("(max-width:900px)")`:
+    ≥900px toggles the persisted collapse; <900px toggles the **drawer**
+    (`qt-side-drawer-open` / `.side-drawer-open`). `aria-expanded` reflects
+    whichever state it toggled.
+  - DoD gains: "Mobile `#sideToggle` is not a no-op" (first tap opens
+    drawer, second closes back to the 36px rail baseline, no
+    `qt-side-collapsed` write on either tap).
+  - H1 and status updated to `v6`.
 ## Sources / cross-references
 
 - `public/index.html:141-149` — `.side` DOM structure (`.tabs` +
