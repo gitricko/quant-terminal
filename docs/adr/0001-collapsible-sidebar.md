@@ -1,12 +1,15 @@
-# ADR 0001 — Collapsible right sidebar (adopted, v4)
+# ADR 0001 — Collapsible right sidebar (adopted, v5)
 
-- Status: adopted (v4, 2026-11-04). v1 (2026-11-04) withdrawn after the 7-point
+- Status: adopted (v5, 2026-11-05). v1 (2026-11-04) withdrawn after the 7-point
   review found an internal contradiction in Decision #2; v2 (2026-11-04) fixed
   §§1–7. v3 (2026-11-04) addressed the round-2 follow-up (3 more blocking
   points: missing active-state feedback in the strip, the `<span>` markup
   assumption, and an unrunnable test plan). v4 (2026-11-04) fixed the
-  round-3 finding on the mobile state model. See "Revision history" at
-  the end.
+  round-3 finding on the mobile state model. v5 (2026-11-05) addresses the
+  round-4 residual — the CSS rail geometry wasn't driven from media state
+  on mobile — by moving the 36px rules into the `(max-width:900px)` media
+  block so they apply independently of the persisted `qt-side-collapsed`
+  key. See "Revision history" at the end.
 
 ## Context
 
@@ -39,14 +42,21 @@ body hides, strip carries the toggle** — not "collapse the container to zero."
    No topbar button, no drag-resize.
 
 2. **Collapsed state = strip, not container.**
-   `.side.collapsed { width: 36px }`; `.side.collapsed #sideBody { display: none }`.
-   In the 36px strip the tab buttons render **icon-only** (text labels hidden
-   via `.side.collapsed .tabs button:not(#sideToggle) span { display: none }`);
-   each tab button carries an inline SVG (matching the style of the existing
-   `#bottomToggle` icon and the nine other `<svg viewBox="0 0 24 24">`
-   icons already in the app). Each icon sits in a 36px cell; the four tab
-   icons stack vertically, with `#sideToggle` at the bottom of the strip.
-   The chart grid (`.grid`, `flex: 1`) takes the released 264px.
+   Desktop (≥ 900px) — rail is a *state*, gated on the persisted
+   `qt-side-collapsed` key: `.side.collapsed { width: 36px }`,
+   `.side.collapsed #sideBody { display: none }`, labels hidden
+   (`.side.collapsed .tabs button:not(#sideToggle) span { display: none }`).
+   Mobile (< 900px) — the same 36px rail is the *baseline* geometry,
+   driven by `@media (max-width: 900px)` media state, not by the
+   `.side.collapsed` class — so it is present on first load regardless of
+   the persisted flag (round-4 fix). In the 36px strip the tab buttons
+   render **icon-only**; each tab button carries an inline SVG (matching
+   the style of the existing `#bottomToggle` icon and the nine other
+   `<svg viewBox="0 0 24 24">` icons already in the app). Each icon sits
+   in a 36px cell; the four tab icons stack vertically, with `#sideToggle`
+   at the bottom of the strip. The chart grid (`.grid`, `flex: 1`) takes
+   the released 264px (desktop) or its full half (mobile, since the rail
+   is only 36px wide in both modes).
    **No `width: 0`, no `overflow: hidden` on the `<aside>`** — that
    combination makes the reopen path invisible (v1's error, fixed here).
    **Active-tab feedback in the strip (required, v3).** Collapsed state
@@ -76,9 +86,13 @@ body hides, strip carries the toggle** — not "collapse the container to zero."
    reset to "0" on every page load and on every breakpoint
    crossing.** No third key, no cross-session drawer intent.
    - ≥ 900px: `qt-side-collapsed == "1"` ⇔ `.side.collapsed` present.
-   - < 900px: the 4-tab strip is ALWAYS visible (36px, same rules as
-     desktop collapsed). The old `@media (max-width: 900px) {
-     .side { display: none } }` is *dropped*. Tapping any strip icon
+   - < 900px: the 4-tab strip is ALWAYS visible in the 36px icon-only rail
+     geometry. That geometry is driven by the `(max-width:900px)` media
+     state, **not** by `qt-side-collapsed` / `.side.collapsed`, so a
+     fresh mobile user (default state) gets the rail on first load — the
+     persisted key is irrelevant below the breakpoint. The old
+     `@media (max-width: 900px) { .side { display: none } }` is *dropped*.
+     Tapping any strip icon
      or `#sideToggle` opens a transient **overlay drawer** (slide-in
      `position: fixed; right: 0; top: 0; bottom: 0; width: 300px;
      z-index: 40; transform: translateX(100%) → 0` with `transition:
@@ -101,13 +115,14 @@ body hides, strip carries the toggle** — not "collapse the container to zero."
    changes mid-trade, especially on mobile). When an alert fires:
    - Desktop (collapsed): set a `data-dot="1"` attribute on the `.alerts`
      tab button inside the collapsed strip; style it as a 6px red dot via
-     `.side.collapsed button[data-dot="1"]::after`. Clearing the dot
-     happens when the Alerts tab is *opened and focused* — clicking
-     that tab opens the sidebar on the Alerts pane and removes the
-     dot.
-   - Mobile (< 900px, drawer closed): same dot, plus the backdrop is
-     *not* shown (dot stays on the icon strip that's always visible
-     under 900px).
+     `@media (min-width:900px) { .side.collapsed button[data-dot="1"]::after
+     { … } }`. Clearing the dot happens when the Alerts tab is *opened and
+     focused* — clicking that tab opens the sidebar on the Alerts pane and
+     removes the dot.
+   - Mobile (< 900px, drawer closed): same dot, but the selector needs the
+     media query, not `.side.collapsed`, since the rail is the baseline:
+     `@media (max-width:900px) { .side button[data-dot="1"]::after { … } }`.
+     Backdrop is *not* shown; dot stays on the icon strip.
    - Drawer already open with Alerts tab active: normal behavior, no dot
      (already looking at it).
 
@@ -134,14 +149,30 @@ Files touched (all `public/`):
     aria-label="Close panels">&times;</button>` for the < 900px overlay.
 
 - `public/css/app.css` —
-  - `.side.collapsed { width: 36px }`
-  - `.side.collapsed #sideBody { display: none }`
-  - `.side.collapsed .tabs button:not(#sideToggle) span { display: none }`
-  - `.side.collapsed .tabs { flex-direction: column; }`
-  - `.side.collapsed #sideToggle svg { transform: rotate(180deg) }`
-  - `@media (max-width: 900px)`: drop the old `.side { display: none }`;
-    add the fixed-drawer rules listed above; show `.side-drawer-close`;
-    `.side-drawer-backdrop` styles.
+  - **Desktop (≥ 900px) — rail is a *state*, gated on the persisted key:**
+    - `@media (min-width: 900px) {
+        .side.collapsed { width: 36px }
+        .side.collapsed #sideBody { display: none }
+        .side.collapsed .tabs button:not(#sideToggle) span { display: none }
+        .side.collapsed .tabs { flex-direction: column; }
+        .side.collapsed #sideToggle svg { transform: rotate(180deg) }
+      }`
+  - **Mobile (< 900px) — rail is the *baseline*, driven by media state,
+    not the `.side.collapsed` class (so a fresh user with the default
+    `qt-side-collapsed="0"` still gets the rail):**
+    - `@media (max-width: 900px) {
+        .side { width: 36px }
+        .side #sideBody { display: none }
+        .side .tabs button:not(#sideToggle) span { display: none }
+        .side .tabs { flex-direction: column; }
+      }`
+    - The old rule `.side { display: none }` inside the same media
+      block is **removed** (was at `app.css:950-953`).
+    - `@media (max-width: 900px)`: add fixed-drawer rules
+      (`.side-drawer-open` slide-in, `.side-drawer-close` shown,
+      `.side-drawer-backdrop` styles) — these fire only when the
+      transient `qt-side-drawer-open="1"` is set, independent of the
+      persisted key.
 
 - **`public/lib/sidebar-state.js` (new, small ESM, zero DOM/window/localStorage
   imports at module scope)** — the pure state logic, extracted so `node --test`
@@ -428,6 +459,28 @@ logic home — it *is* in the touched list above; "not touched" does not claim
   - DoD browser checklist: add "resize from 800px → 1200px and
     back: strip persists, drawer never lingers, `qt-side-collapsed`
     does not change during the resize."
+
+- **v5 (2026-11-05).** Round-4 residual: the 36px rail geometry was
+  gated on `.side.collapsed`, which only exists when the persisted
+  `qt-side-collapsed=="1"` — so a fresh mobile user would have seen a
+  300px inline sidebar, not the promised 36px icon rail. The reviewer's
+  option 1 (drive the rail geometry from the `(max-width: 900px)` media
+  state, independent of the persisted key) is adopted. Changes:
+  - Decision #2 (rail spec) split into explicit desktop vs mobile.
+    Desktop rail is a *state* — `.side.collapsed {…}` gated on the
+    persisted flag. Mobile rail is the *baseline* — `@media
+    (max-width:900px) { .side { width:36px; … } }`, no `.collapsed`
+    class required.
+  - Decision #4 (mobile state model) reworded to make the
+    media-state-vs-key distinction explicit.
+  - Decision #5 (alerts) alert-dot selector split into two media
+    blocks: `@media (min-width:900px) .side.collapsed button[data-dot]`
+    and `@media (max-width:900px) .side button[data-dot]`.
+  - CSS file list rewritten with the two media blocks explicitly
+    spelled out. `@media (max-width:900px) { .side { display: none } }`
+    is removed (was at `app.css:950-953`); the new baseline mobile rail
+    rules and the drawer-only conditional rules replace it.
+  - H1 and status updated to `v5`, date 2026-11-05.
 ## Sources / cross-references
 
 - `public/index.html:141-149` — `.side` DOM structure (`.tabs` +
