@@ -140,13 +140,20 @@
       </section>
       <aside class="side">
         <div class="tabs" id="sideTabs">
-          <button data-tab="watchlist" class="active">Watchlist</button>
-          <button data-tab="alerts">Alerts</button>
-          <button data-tab="calendar">Calendar</button>
-          <button data-tab="news">News</button>
+          <button data-tab="watchlist" class="active"><span class="label">Watchlist</span></button>
+          <button data-tab="alerts"><span class="label">Alerts</span></button>
+          <button data-tab="calendar"><span class="label">Calendar</span></button>
+          <button data-tab="news"><span class="label">News</span></button>
+          <button id="sideToggle" class="icon" title="Show / hide panel" aria-expanded="false" aria-controls="sideBody">
+            <svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6" /></svg>
+          </button>
         </div>
+        <button id="sideDrawerClose" class="side-drawer-close" title="Close" aria-label="Close panel">
+          <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" /></svg>
+        </button>
         <div class="tab-body" id="sideBody"></div>
       </aside>
+      <div id="sideDrawerBackdrop" class="side-drawer-backdrop" aria-hidden="true"></div>
     </div>
 
     <div id="modal" class="modal hidden">

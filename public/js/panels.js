@@ -21,6 +21,15 @@ import {
   magnifierTf,
 } from "../lib/backtest.js";
 import { parseTf } from "../lib/series.js";
+import {
+  readCollapsed,
+  writeCollapsed,
+  readTab,
+  isMobile,
+  project,
+  reduce,
+  MOBILE_QUERY,
+} from "../lib/sidebar-state.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const LW = window.LightweightCharts;
@@ -210,10 +219,8 @@ export function initPanels(app) {
   const P = {};
 
   // ---------- tabs ----------
-  $("#sideTabs").onclick = (e) => {
-    const t = e.target.dataset.tab;
-    if (t) showSide(t);
-  };
+  // (The #sideTabs handler below now routes through selectSideTab so the
+  //  tap-to-reveal drawer closes on tab pick — wire-up further down.)
   $("#bottomTabs").onclick = (e) => {
     const t = e.target.closest("[data-tab]")?.dataset.tab;
     if (t) showBottom(t, true);
@@ -223,11 +230,93 @@ export function initPanels(app) {
     if (!bottomEl.classList.contains("collapsed")) renderBottom();
   };
 
+  // ---------- collapsible side: desktop rail + mobile drawer (ADR 0001) ----------
+  // State lives in this closure (no globals). Desktop `collapsed` persists to
+  // localStorage via sidebar-state.js; the mobile drawer is per-session only.
+  const sideEl = $(".side"),
+    toggleEl = $("#sideToggle"),
+    backdropEl = $("#sideDrawerBackdrop"),
+    drawerCloseEl = $("#sideDrawerClose");
+  let collapsed = readCollapsed(window.localStorage),
+    drawerOpen = false;
+
+  // Apply desktop rail flag as classes/attrs; re-render on expand so content
+  // exists. project() decides visibility, so on mobile `collapsed` never
+  // produces the .collapsed class (the 36px rail is the CSS baseline).
+  function applyDesktop() {
+    const p = project({ collapsed, isMobile: isMobile(window.matchMedia(MOBILE_QUERY)) });
+    sideEl.classList.toggle("collapsed", p.collapsedClass);
+    toggleEl.setAttribute("aria-expanded", String(p.ariaExpanded));
+    if (!collapsed) renderSide();
+  }
+  // Mobile drawer: fixed overlay + backdrop; render so the body has content.
+  function applyDrawer() {
+    sideEl.classList.toggle("side-drawer-open", drawerOpen);
+    backdropEl.classList.toggle("active", drawerOpen);
+    toggleEl.setAttribute("aria-expanded", String(drawerOpen));
+    if (drawerOpen) renderSide();
+  }
+  function closeDrawer() {
+    drawerOpen = false;
+    applyDrawer();
+  }
+  toggleEl.onclick = () => {
+    if (isMobile(window.matchMedia(MOBILE_QUERY))) {
+      drawerOpen = !drawerOpen;
+      applyDrawer();
+    } else {
+      collapsed = !collapsed;
+      writeCollapsed(window.localStorage, collapsed);
+      applyDesktop();
+    }
+  };
+  drawerCloseEl.onclick = () => closeDrawer();
+  backdropEl.onclick = () => closeDrawer();
+
+  function selectSideTab(t) {
+    const st = reduce({ activeTab: sideTab, collapsed, drawerOpen }, "select:" + t);
+    if (st.drawerOpen !== drawerOpen) {
+      drawerOpen = st.drawerOpen;
+      if (st.drawerOpen) applyDrawer();
+      else closeDrawer();
+    }
+    if (st.collapsed !== collapsed) {
+      collapsed = st.collapsed;
+      writeCollapsed(window.localStorage, collapsed);
+    }
+    showSide(t);
+  }
+  $("#sideTabs").onclick = (e) => {
+    const t = e.target.dataset.tab;
+    if (t) selectSideTab(t);
+  };
+
+  // Breakpoint change: drop the transient drawer and reconcile the desktop
+  // flag straight from storage (rail is baseline below 900px).
+  const mq = window.matchMedia(MOBILE_QUERY);
+  const onBp = () => {
+    if (drawerOpen) closeDrawer();
+    const c = readCollapsed(window.localStorage);
+    if (c !== collapsed) {
+      collapsed = c;
+      applyDesktop();
+    }
+    sideEl.classList.toggle(
+      "collapsed",
+      collapsed && !isMobile(window.matchMedia(MOBILE_QUERY))
+    );
+  };
+  if (mq && typeof mq.addEventListener === "function")
+    mq.addEventListener("change", onBp);
+  onBp();
+
   function showSide(t) {
     sideTab = t;
     document
       .querySelectorAll("#sideTabs button")
       .forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
+    // Navigating to the Alerts pane = those alerts are now seen.
+    if (typeof setAlertDot === "function" && t === "alerts") setAlertDot(false);
     renderSide();
   }
   function showBottom(t, toggle = false) {
@@ -1647,8 +1736,25 @@ export function initPanels(app) {
     if (bottomTab === "paper" && !bottomEl.classList.contains("collapsed"))
       renderPaper();
   };
+  // Alert dot (ADR 0001 Decision #5): show the unread dot on the Alerts
+  // tab when the sidebar is not currently showing the Alerts pane.
+  // The dot is a data attribute the CSS targets, so the alert hook is
+  // the only state writer. Cleared when the user navigates to Alerts.
+  function setAlertDot(show) {
+    const alertsTab = document.querySelector('#sideTabs [data-tab="alerts"]');
+    if (alertsTab) alertsTab.setAttribute("data-dot", show ? "1" : "0");
+  }
   P.onAlertFired = () => {
-    if (sideTab === "alerts") renderAlerts();
+    const sidebarShowsAlerts = sideTab === "alerts" && (
+      // Desktop: expanded sidebar showing alerts.
+      (!collapsed) ||
+      // Mobile: drawer open and showing alerts.
+      (drawerOpen)
+    );
+    if (sidebarShowsAlerts) {
+      if (sideTab === "alerts") renderAlerts();
+    }
+    setAlertDot(!sidebarShowsAlerts);
   };
   P.onTheme = () => {
     renderBottom();

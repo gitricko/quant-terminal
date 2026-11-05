@@ -949,6 +949,12 @@ h4 {
 
 @media (max-width: 900px) {
   .side {
+    width: 36px;
+  }
+  .side #sideBody {
+    display: none;
+  }
+  .side .tabs button .label {
     display: none;
   }
   .bottom {
@@ -1118,3 +1124,100 @@ body.has-ribbon .main { height: calc(100% - 90px); }
 .ovr-table th, .ovr-table td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .ovr-dim { color: var(--muted); }
 .ovr-foot { margin-top: 16px !important; color: var(--muted); }
+
+/* Collapsible sidebar rail (ADR 0001) */
+@media (min-width: 900px) {
+  .side.collapsed {
+    width: 36px;
+  }
+  .side.collapsed #sideBody {
+    display: none;
+  }
+  .side.collapsed .tabs button .label {
+    display: none;
+  }
+  .side.collapsed #sideToggle svg {
+    transform: rotate(180deg);
+  }
+  .side.collapsed .tabs .icon {
+    margin-bottom: 4px;
+  }
+}
+
+/* Mobile overlay drawer (ADR 0001): the rail is the baseline; the drawer
+   overlays at 300px until a tab is picked or the backdrop/close is hit. */
+.side.side-drawer-open {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 300px;
+  z-index: 40;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
+}
+.side.side-drawer-open #sideBody {
+  display: block;
+}
+.side.side-drawer-open .tabs button .label {
+  display: inline;
+}
+.side.side-drawer-open #sideToggle svg {
+  transform: rotate(180deg);
+}
+
+/* Drawer-close button: hidden on desktop, visible only in the mobile drawer. */
+.side-drawer-close {
+  display: none;
+}
+@media (max-width: 900px) {
+  .side-drawer-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin: 4px auto 0;
+    background: transparent;
+    border: 0;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .side-drawer-close svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+}
+
+/* Backdrop behind the mobile drawer. */
+.side-drawer-backdrop {
+  display: none;
+}
+.side-drawer-backdrop.active {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 39;
+}
+
+/* Alert dot on the Alerts tab (ADR 0001 Decision #5).
+   Shown when an alert fires while the sidebar is collapsed (desktop)
+   or the drawer is closed (mobile); hidden when the Alerts pane is
+   already open. */
+.side .tabs button[data-dot="1"]::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--down, #e5484d);
+}
+.side .tabs button {
+  position: relative;
+}
