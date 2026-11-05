@@ -1,4 +1,4 @@
-# ADR 0001 — Collapsible right sidebar (adopted, v6)
+# ADR 0001 — Collapsible right sidebar (adopted, v7)
 
 - Status: adopted (v6, 2026-11-05). v1 (2026-11-04) withdrawn after the 7-point
   review found an internal contradiction in Decision #2; v2 (2026-11-04) fixed
@@ -12,7 +12,11 @@
   key. v6 (2026-11-05) folds in pi-agent's round-5 sign-off
   recommendation: on <900px `#sideToggle` is a **drawer** toggle (not a
   class toggle, which would have been a no-op on the always-36px mobile
-  rail). See "Revision history" at the end.
+  rail). v7 (2026-11-05) corrects the post-implementation geometry
+  (desktop rail 72px vertical icon column, mobile rail 36px vertical
+  icon column, mobile drawer 300px) and records the tab
+  click-delegation fix (`e.target.closest("button[data-tab]")`), both
+  verified in the shipped tree. See "Revision history" at the end.
 
 ## Context
 
@@ -46,20 +50,23 @@ body hides, strip carries the toggle** — not "collapse the container to zero."
 
 2. **Collapsed state = strip, not container.**
    Desktop (≥ 900px) — rail is a *state*, gated on the persisted
-   `qt-side-collapsed` key: `.side.collapsed { width: 36px }`,
+   `qt-side-collapsed` key: `.side.collapsed { width: 72px }`,
    `.side.collapsed #sideBody { display: none }`, labels hidden
-   (`.side.collapsed .tabs button:not(#sideToggle) span { display: none }`).
-   Mobile (< 900px) — the same 36px rail is the *baseline* geometry,
+   (`.side.collapsed #sideTabs button .label { display: none }`).
+   The rail is a **vertical icon column** (v7: the four tab icons stack
+   vertically in a 72px band; `#sideToggle` anchors the bottom).
+   Mobile (< 900px) — the same rail concept is the *baseline* geometry,
    driven by `@media (max-width: 900px)` media state, not by the
    `.side.collapsed` class — so it is present on first load regardless of
-   the persisted flag (round-4 fix). In the 36px strip the tab buttons
-   render **icon-only**; each tab button carries an inline SVG (matching
+   the persisted flag (round-4 fix). The mobile rail is 36px wide with
+   18px icons; the drawer (`#sideToggle` tap) opens a 300px fixed
+   overlay with the horizontal tab row + labels restored + `#sideBody`
+   visible; X / backdrop / tab-select closes it. In both stripped
+   states the tab buttons render **icon-only**; each tab button carries
+   an inline SVG (matching
    the style of the existing `#bottomToggle` icon and the nine other
-   `<svg viewBox="0 0 24 24">` icons already in the app). Each icon sits
-   in a 36px cell; the four tab icons stack vertically, with `#sideToggle`
-   at the bottom of the strip. The chart grid (`.grid`, `flex: 1`) takes
-   the released 264px (desktop) or its full half (mobile, since the rail
-   is only 36px wide in both modes).
+   `<svg viewBox="0 0 24 24">` icons already in the app). The chart grid
+   (`.grid`, `flex: 1`) takes the released width in either mode.
    **No `width: 0`, no `overflow: hidden` on the `<aside>`** — that
    combination makes the reopen path invisible (v1's error, fixed here).
    **Active-tab feedback in the strip (required, v3).** Collapsed state
@@ -154,10 +161,10 @@ Files touched (all `public/`):
 - `public/css/app.css` —
   - **Desktop (≥ 900px) — rail is a *state*, gated on the persisted key:**
     - `@media (min-width: 900px) {
-        .side.collapsed { width: 36px }
+        .side.collapsed { width: 72px }
         .side.collapsed #sideBody { display: none }
-        .side.collapsed .tabs button:not(#sideToggle) span { display: none }
-        .side.collapsed .tabs { flex-direction: column; }
+        .side.collapsed #sideTabs { flex-direction: column }
+        .side.collapsed #sideTabs button .label { display: none }
         .side.collapsed #sideToggle svg { transform: rotate(180deg) }
       }`
   - **Mobile (< 900px) — rail is the *baseline*, driven by media state,
@@ -166,8 +173,8 @@ Files touched (all `public/`):
     - `@media (max-width: 900px) {
         .side { width: 36px }
         .side #sideBody { display: none }
-        .side .tabs button:not(#sideToggle) span { display: none }
-        .side .tabs { flex-direction: column; }
+        .side #sideTabs { flex-direction: column }
+        .side #sideTabs button .label { display: none }
       }`
     - The old rule `.side { display: none }` inside the same media
       block is **removed** (was at `app.css:950-953`).
@@ -517,6 +524,25 @@ logic home — it *is* in the touched list above; "not touched" does not claim
     drawer, second closes back to the 36px rail baseline, no
     `qt-side-collapsed` write on either tap).
   - H1 and status updated to `v6`.
+
+- **v7 (2026-11-05).** Post-implementation geometry + click-delegation
+  corrections, folded into Decision #2 and the CSS checklist:
+  - **Rail widths fixed:** desktop collapsed rail is **72px** (was 36px —
+    not physically possible for 5 icons in a row); mobile baseline rail
+    stays **36px** with a **vertical icon column** (was a horizontal row
+    that overflowed ~60px past the panel, the same class of bug the
+    desktop row had — user couldn't reach News/Calendar in the rail).
+  - **Mobile drawer widened to 300px** with the horizontal tab row +
+    labels restored (was 200px, which overflowed the row again at
+    `~295px of content`).
+  - **Click delegation fixed (`0b79aa3`).** The handler was reading
+    `e.target.dataset.tab`; real pointer clicks land on the inner
+    `<svg>`/`<span>` icon or label (added two rounds earlier), which
+    have no `data-tab` → silent no-op. Now `e.target.closest("button[data-tab]")`
+    resolves to the enclosing tab button, so icon, label, and padding
+    all route correctly.
+  - H1 and status updated to `v7`.
+
 ## Sources / cross-references
 
 - `public/index.html:141-149` — `.side` DOM structure (`.tabs` +
