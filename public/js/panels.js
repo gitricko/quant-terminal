@@ -260,7 +260,10 @@ export function initPanels(app) {
     drawerOpen = false;
     applyDrawer();
   }
-  toggleEl.onclick = () => {
+  toggleEl.onclick = (e) => {
+    // #sideToggle lives inside #sideTabs; stop the container click handler
+    // from also running (it would no-op and muddle re-open paths).
+    if (e && e.stopPropagation) e.stopPropagation();
     if (isMobile(window.matchMedia(MOBILE_QUERY))) {
       drawerOpen = !drawerOpen;
       applyDrawer();
@@ -274,16 +277,28 @@ export function initPanels(app) {
   backdropEl.onclick = () => closeDrawer();
 
   function selectSideTab(t) {
-    const st = reduce({ activeTab: sideTab, collapsed, drawerOpen }, "select:" + t);
-    if (st.drawerOpen !== drawerOpen) {
-      drawerOpen = st.drawerOpen;
-      if (st.drawerOpen) applyDrawer();
-      else closeDrawer();
+    if (isMobile(window.matchMedia(MOBILE_QUERY))) {
+      // Mobile: rail is the CSS baseline (no collapsed class). Selecting a
+      // tab opens the drawer on that tab (tap-to-reveal) — matches ADR v6 and
+      // the round-2 "re-open shortcut" (click reveals the panel on that tab).
+      sideTab = t;
+      drawerOpen = true;
+      applyDrawer();
+    } else {
+      // Desktop: clicking a tab in the 36px rail means "open the panel on
+      // this tab". If we are collapsed, expand to it and persist; otherwise
+      // just switch. The reduced state intentionally leaves `collapsed`
+      // alone (locked by test/sidebar-state.test.js:139), so the expand is
+      // applied here, in the only place the desktop flag is written.
+      const collapsedNow = collapsed;
+      if (collapsedNow) {
+        collapsed = false;
+        writeCollapsed(window.localStorage, collapsed);
+      }
+      sideTab = t;
+      if (collapsedNow) applyDesktop(); // re-render now that the panel is visible
     }
-    if (st.collapsed !== collapsed) {
-      collapsed = st.collapsed;
-      writeCollapsed(window.localStorage, collapsed);
-    }
+    writeTab(window.localStorage, t);
     showSide(t);
   }
   $("#sideTabs").onclick = (e) => {
@@ -1744,6 +1759,11 @@ export function initPanels(app) {
     const alertsTab = document.querySelector('#sideTabs [data-tab="alerts"]');
     if (alertsTab) alertsTab.setAttribute("data-dot", show ? "1" : "0");
   }
+  // Persist the active tab id (ADR Decision #2 / sidebar-state.js:28 readTab).
+  function writeTab(storage, tab) {
+    if (!storage) return;
+    try { storage.setItem("qt-side-tab", tab); } catch { /* private mode */ }
+  }
   P.onAlertFired = () => {
     const sidebarShowsAlerts = sideTab === "alerts" && (
       // Desktop: expanded sidebar showing alerts.
@@ -1759,6 +1779,10 @@ export function initPanels(app) {
   P.onTheme = () => {
     renderBottom();
   };
-  showSide("watchlist");
+  // Restore the active tab from storage (ADR Decision #2: `qt-side-tab` is
+  // persisted alongside `qt-side-collapsed`). readTab returns DEFAULT_TAB
+  // when the key is missing, so this is a no-op in a fresh profile.
+  const initialTab = readTab(window.localStorage);
+  showSide(initialTab);
   return P;
 }
