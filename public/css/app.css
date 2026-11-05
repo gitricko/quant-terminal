@@ -954,6 +954,9 @@ h4 {
   .side #sideBody {
     display: none;
   }
+  .side .tabs button {
+    height: 42px;
+  }
   .side .tabs button .label {
     display: none;
   }
@@ -1125,22 +1128,85 @@ body.has-ribbon .main { height: calc(100% - 90px); }
 .ovr-dim { color: var(--muted); }
 .ovr-foot { margin-top: 16px !important; color: var(--muted); }
 
-/* Collapsible sidebar rail (ADR 0001) */
+/* Collapsible sidebar (ADR 0001 v6).
+   EXPANDED (default, desktop & mobile-drawer): horizontal tab row,
+   left-to-right, compact sizing so all 5 (4 tabs + chevron) fit in
+   the 300px panel width.
+   COLLAPSED (desktop): icon-only VERTICAL rail, 72px wide, 32px rows.
+   The ADR's 36px target was not physically reachable for 5x >=14px
+   icons; 72px (2x28px icon grid) is the minimum that fits the rail
+   with a 2px icon gutter. */
+.side {
+  flex-direction: column;
+}
+.side #sideTabs {
+  flex-direction: row;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 3px;
+  border-bottom: 1px solid var(--border);
+}
+.side #sideTabs button {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 1px;
+  height: 24px;
+  padding: 0 1px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex: none;
+}
+.side #sideTabs button svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.side #sideTabs button .label {
+  font-size: 11px;
+  line-height: 1;
+}
+.side #sideTabs #sideToggle {
+  margin-left: auto;
+  padding: 0 4px;
+  border-radius: 3px;
+}
 @media (min-width: 900px) {
   .side.collapsed {
-    width: 36px;
+    width: 72px;
   }
   .side.collapsed #sideBody {
     display: none;
   }
-  .side.collapsed .tabs button .label {
+  /* Icon-only vertical rail. Buttons stack; chevron anchors the end. */
+  .side.collapsed #sideTabs {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 4px 2px;
+    border-bottom: 0;
+  }
+  .side.collapsed #sideTabs button {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+    height: 32px;
+    padding: 2px 0;
+  }
+  .side.collapsed #sideTabs button svg {
+    width: 18px;
+    height: 18px;
+  }
+  .side.collapsed #sideTabs button .label {
     display: none;
+  }
+  .side.collapsed #sideTabs #sideToggle {
+    margin-left: 0;
+    border-top: 1px solid var(--border);
+    margin-top: 2px;
   }
   .side.collapsed #sideToggle svg {
     transform: rotate(180deg);
-  }
-  .side.collapsed .tabs .icon {
-    margin-bottom: 4px;
   }
 }
 
@@ -1151,7 +1217,7 @@ body.has-ribbon .main { height: calc(100% - 90px); }
   right: 0;
   top: 0;
   bottom: 0;
-  width: 300px;
+  width: 200px;
   z-index: 40;
   box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
 }
