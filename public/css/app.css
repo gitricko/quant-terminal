@@ -947,9 +947,92 @@ h4 {
   }
 }
 
+/* Collapsible sidebar (ADR 0001 v6).
+   EXPANDED (default, desktop & mobile-drawer): horizontal tab row,
+   left-to-right, compact sizing so all 5 (4 tabs + chevron) fit in
+   the 300px panel width.
+   COLLAPSED (desktop): icon-only VERTICAL rail, 72px wide, 32px rows.
+   The ADR's 36px target was not physically reachable for 5x >=14px
+   icons; 72px (2x28px icon grid) is the minimum that fits the rail
+   with a 2px icon gutter. */
+.side {
+  flex-direction: column;
+}
+/* tabindex=-1 lets the mobile drawer grab focus for keyboard users without
+   a visible outline (the overlay itself is the focus target). */
+.side:focus {
+  outline: none;
+}
+.side #sideTabs {
+  flex-direction: row;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 3px;
+  border-bottom: 1px solid var(--border);
+}
+.side #sideTabs button {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 1px;
+  height: 24px;
+  padding: 0 1px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex: none;
+}
+.side #sideTabs button svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.side #sideTabs button .label {
+  font-size: 11px;
+  line-height: 1;
+}
+.side #sideTabs #sideToggle {
+  margin-left: auto;
+  padding: 0 4px;
+  border-radius: 3px;
+}
 @media (max-width: 900px) {
   .side {
+    width: 36px;
+  }
+  .side #sideBody {
     display: none;
+  }
+  /* Mobile rail: icon-only vertical column at 36px, same concept as the
+     desktop rail but tighter (smaller icons, same stacked rows).  The
+     horizontal row form can't fit 5 icons in 36px, so this is a column. */
+  .side #sideTabs {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 4px 2px;
+    border-bottom: 0;
+  }
+  .side #sideTabs button {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+    height: 28px;
+    padding: 2px 0;
+  }
+  .side #sideTabs button svg {
+    width: 18px;
+    height: 18px;
+  }
+  .side #sideTabs button .label {
+    display: none;
+  }
+  .side #sideTabs #sideToggle {
+    margin-left: 0;
+    border-top: 1px solid var(--border);
+    margin-top: 2px;
+  }
+  .side #sideToggle svg {
+    transform: rotate(180deg);
   }
   .bottom {
     height: 45%;
@@ -1118,3 +1201,148 @@ body.has-ribbon .main { height: calc(100% - 90px); }
 .ovr-table th, .ovr-table td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .ovr-dim { color: var(--muted); }
 .ovr-foot { margin-top: 16px !important; color: var(--muted); }
+
+@media (min-width: 900px) {
+  .side.collapsed {
+    width: 72px;
+  }
+  .side.collapsed #sideBody {
+    display: none;
+  }
+  /* Icon-only vertical rail. Buttons stack; chevron anchors the end. */
+  .side.collapsed #sideTabs {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 4px 2px;
+    border-bottom: 0;
+  }
+  .side.collapsed #sideTabs button {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+    height: 32px;
+    padding: 2px 0;
+  }
+  .side.collapsed #sideTabs button svg {
+    width: 18px;
+    height: 18px;
+  }
+  .side.collapsed #sideTabs button .label {
+    display: none;
+  }
+  .side.collapsed #sideTabs #sideToggle {
+    margin-left: 0;
+    border-top: 1px solid var(--border);
+    margin-top: 2px;
+  }
+  .side.collapsed #sideToggle svg {
+    transform: rotate(180deg);
+  }
+}
+
+/* Mobile overlay drawer (ADR 0001): the rail is the baseline; the drawer
+   overlays at 300px until a tab is picked or the backdrop/close is hit. */
+.side.side-drawer-open {
+  position: fixed;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 300px;
+  z-index: 40;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.4);
+}
+.side.side-drawer-open #sideBody {
+  display: block;
+}
+/* Drawer open state overrides the mobile rail back to the horizontal
+   tab row with labels — this is the "content pane" for the user. */
+.side.side-drawer-open #sideTabs {
+  flex-direction: row;
+  align-items: center;
+  gap: 1px;
+  padding: 2px 3px;
+  border-bottom: 1px solid var(--border);
+}
+.side.side-drawer-open #sideTabs button {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  height: 24px;
+  padding: 0 2px;
+}
+.side.side-drawer-open #sideTabs button svg {
+  width: 12px;
+  height: 12px;
+}
+.side.side-drawer-open #sideTabs button .label {
+  display: inline;
+  font-size: 11px;
+}
+.side.side-drawer-open #sideTabs #sideToggle {
+  margin-left: auto;
+  padding: 0 3px;
+  border-top: 0;
+  margin-top: 0;
+}
+.side.side-drawer-open #sideToggle svg {
+  transform: none;
+}
+
+/* Drawer-close button: hidden on desktop, visible only in the mobile drawer. */
+.side-drawer-close {
+  display: none;
+}
+@media (max-width: 900px) {
+  .side-drawer-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin: 4px auto 0;
+    background: transparent;
+    border: 0;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .side-drawer-close svg {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+}
+
+/* Backdrop behind the mobile drawer. */
+.side-drawer-backdrop {
+  display: none;
+}
+.side-drawer-backdrop.active {
+  display: block;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 39;
+}
+
+/* Alert dot on the Alerts tab (ADR 0001 Decision #5).
+   Shown when an alert fires while the sidebar is collapsed (desktop)
+   or the drawer is closed (mobile); hidden when the Alerts pane is
+   already open. */
+.side .tabs button[data-dot="1"]::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--down, #e5484d);
+}
+.side .tabs button {
+  position: relative;
+}

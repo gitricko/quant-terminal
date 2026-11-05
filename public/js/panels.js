@@ -21,6 +21,15 @@ import {
   magnifierTf,
 } from "../lib/backtest.js";
 import { parseTf } from "../lib/series.js";
+import {
+  readCollapsed,
+  writeCollapsed,
+  readTab,
+  isMobile,
+  project,
+  reduce,
+  MOBILE_QUERY,
+} from "../lib/sidebar-state.js";
 
 const $ = (s, el = document) => el.querySelector(s);
 const LW = window.LightweightCharts;
@@ -210,10 +219,8 @@ export function initPanels(app) {
   const P = {};
 
   // ---------- tabs ----------
-  $("#sideTabs").onclick = (e) => {
-    const t = e.target.dataset.tab;
-    if (t) showSide(t);
-  };
+  // (The #sideTabs handler below now routes through selectSideTab so the
+  //  tap-to-reveal drawer closes on tab pick — wire-up further down.)
   $("#bottomTabs").onclick = (e) => {
     const t = e.target.closest("[data-tab]")?.dataset.tab;
     if (t) showBottom(t, true);
@@ -223,11 +230,133 @@ export function initPanels(app) {
     if (!bottomEl.classList.contains("collapsed")) renderBottom();
   };
 
+  // ---------- collapsible side: desktop rail + mobile drawer (ADR 0001) ----------
+  // State lives in this closure (no globals). Desktop `collapsed` persists to
+  // localStorage via sidebar-state.js; the mobile drawer is per-session only.
+  const sideEl = $(".side"),
+    toggleEl = $("#sideToggle"),
+    backdropEl = $("#sideDrawerBackdrop"),
+    drawerCloseEl = $("#sideDrawerClose");
+  let collapsed = readCollapsed(window.localStorage),
+    drawerOpen = false;
+
+  // Apply desktop rail flag as classes/attrs; re-render on expand so content
+  // exists. project() decides visibility, so on mobile `collapsed` never
+  // produces the .collapsed class (the 36px rail is the CSS baseline).
+  function applyDesktop() {
+    applyState();
+  }
+  // Single writer: re-project the current flags through the pure module and
+  // let the DOM match it. Every field the module emits is consumed here.
+  // Rendering the body is the caller's job (showSide / explicit expand
+  // paths): renderSide is a const arrow declared later in the module (TDZ),
+  // and re-rendering on every class flip would thrash.
+  function applyState() {
+    const p = project({
+      collapsed,
+      isMobile: isMobile(window.matchMedia(MOBILE_QUERY)),
+      drawerOpen,
+    });
+    sideEl.classList.toggle("collapsed", p.collapsedClass);
+    sideEl.classList.toggle("side-drawer-open", p.drawerClass);
+    backdropEl.classList.toggle("active", p.drawerClass);
+    // aria-expanded tracks the drawer on mobile, the flag on desktop.
+    toggleEl.setAttribute("aria-expanded", String(p.ariaExpanded));
+    // aria-hidden keeps the strip's body out of the a11y tree when hidden.
+    const sideBody = $("#sideBody");
+    if (sideBody) sideBody.setAttribute("aria-hidden", String(p.sideBodyHidden));
+    sideEl.setAttribute("role", p.drawerClass ? "dialog" : "complementary");
+    sideEl.setAttribute("aria-modal", String(p.drawerClass));
+  }
+  // Mobile drawer: focus must land in the overlay so keyboard users can get
+  // in and out (ADR v8 minimums); `tabindex="-1"` on the aside is required
+  // for sideEl.focus() below.
+  function applyDrawer() {
+    applyState();
+    if (drawerOpen) sideEl.focus();
+  }
+  function closeDrawer() {
+    drawerOpen = false;
+    applyDrawer();
+  }
+  toggleEl.onclick = (e) => {
+    // #sideToggle lives inside #sideTabs; stop the container click handler
+    // from also running (it would no-op and muddle re-open paths).
+    if (e && e.stopPropagation) e.stopPropagation();
+    if (isMobile(window.matchMedia(MOBILE_QUERY))) {
+      drawerOpen = !drawerOpen;
+      applyDrawer();
+    } else {
+      collapsed = !collapsed;
+      writeCollapsed(window.localStorage, collapsed);
+      applyDesktop();
+    }
+  };
+  drawerCloseEl.onclick = () => closeDrawer();
+  backdropEl.onclick = () => closeDrawer();
+  // Escape closes the drawer regardless of where focus is. Bound once so a
+  // later re-render cannot register a duplicate listener.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && drawerOpen) closeDrawer();
+  });
+
+  function selectSideTab(t) {
+    if (isMobile(window.matchMedia(MOBILE_QUERY))) {
+      // Mobile: rail is the CSS baseline (no collapsed class). Selecting a
+      // tab opens the drawer on that tab (ADR v8: drawer stays open so the
+      // user can move between panes). The round-2 re-open shortcut and
+      // the v8 tab-switch rule compose cleanly: a first tap reveals,
+      // subsequent taps navigate.
+      sideTab = t;
+      drawerOpen = true;
+      applyDrawer();
+    } else {
+      // Desktop: clicking a tab in the 36px rail means "open the panel on
+      // this tab". If we are collapsed, expand to it and persist; otherwise
+      // just switch. The reduced state intentionally leaves `collapsed`
+      // alone (locked by test/sidebar-state.test.js:139), so the expand is
+      // applied here, in the only place the desktop flag is written.
+      const collapsedNow = collapsed;
+      if (collapsedNow) {
+        collapsed = false;
+        writeCollapsed(window.localStorage, collapsed);
+      }
+      sideTab = t;
+      if (collapsedNow) applyDesktop(); // re-render now that the panel is visible
+    }
+    writeTab(window.localStorage, t);
+    showSide(t);
+  }
+  $("#sideTabs").onclick = (e) => {
+    // Resolve from the clicked element up to the tab button. Clicks land on
+    // the inner <svg> or <span class="label">, which have no data-tab —
+    // reading e.target.dataset.tab directly would drop them.
+    const btn = e.target.closest("button[data-tab]");
+    if (btn) selectSideTab(btn.dataset.tab);
+  };
+
+  // Breakpoint change: drop the transient drawer and re-project from storage
+  // (the rail is baseline below 900px, so the desktop flag can no longer
+  // apply here).
+  const mq = window.matchMedia(MOBILE_QUERY);
+  const onBp = () => {
+    if (drawerOpen) closeDrawer();
+    // Re-read the persisted flag (self-heals hand-edited storage) and
+    // re-project: `isMobile` changed, so the class set must be recomputed.
+    collapsed = readCollapsed(window.localStorage);
+    applyState();
+  };
+  if (mq && typeof mq.addEventListener === "function")
+    mq.addEventListener("change", onBp);
+  onBp();
+
   function showSide(t) {
     sideTab = t;
     document
       .querySelectorAll("#sideTabs button")
       .forEach((b) => b.classList.toggle("active", b.dataset.tab === t));
+    // Navigating to the Alerts pane = those alerts are now seen.
+    if (typeof setAlertDot === "function" && t === "alerts") setAlertDot(false);
     renderSide();
   }
   function showBottom(t, toggle = false) {
@@ -1647,12 +1776,38 @@ export function initPanels(app) {
     if (bottomTab === "paper" && !bottomEl.classList.contains("collapsed"))
       renderPaper();
   };
+  // Alert dot (ADR 0001 Decision #5): show the unread dot on the Alerts
+  // tab when the sidebar is not currently showing the Alerts pane.
+  // The dot is a data attribute the CSS targets, so the alert hook is
+  // the only state writer. Cleared when the user navigates to Alerts.
+  function setAlertDot(show) {
+    const alertsTab = document.querySelector('#sideTabs [data-tab="alerts"]');
+    if (alertsTab) alertsTab.setAttribute("data-dot", show ? "1" : "0");
+  }
+  // Persist the active tab id (ADR Decision #2 / sidebar-state.js:28 readTab).
+  function writeTab(storage, tab) {
+    if (!storage) return;
+    try { storage.setItem("qt-side-tab", tab); } catch { /* private mode */ }
+  }
   P.onAlertFired = () => {
-    if (sideTab === "alerts") renderAlerts();
+    const sidebarShowsAlerts = sideTab === "alerts" && (
+      // Desktop: expanded sidebar showing alerts.
+      (!collapsed) ||
+      // Mobile: drawer open and showing alerts.
+      (drawerOpen)
+    );
+    if (sidebarShowsAlerts) {
+      if (sideTab === "alerts") renderAlerts();
+    }
+    setAlertDot(!sidebarShowsAlerts);
   };
   P.onTheme = () => {
     renderBottom();
   };
-  showSide("watchlist");
+  // Restore the active tab from storage (ADR Decision #2: `qt-side-tab` is
+  // persisted alongside `qt-side-collapsed`). readTab returns DEFAULT_TAB
+  // when the key is missing, so this is a no-op in a fresh profile.
+  const initialTab = readTab(window.localStorage);
+  showSide(initialTab);
   return P;
 }
