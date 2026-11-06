@@ -132,3 +132,55 @@ test('a bar that is a fresh high but NOT bearish does not fire', () => {
   assert.equal(got.early5[2], null);
   assert.equal(got.early4[2], null);
 });
+
+test('candidate gate: passes all 5 checks but not the window-max → suppressed', () => {
+  // Pins the one genuine decision branch (custom/washout-short.js:61):
+  //   if (!(high[i] >= highest(high, L+1))) continue;
+  // A bar passing all 5 per-check conditions fires ONLY when it is also the
+  // window-max. Drop the gate and bar 5 leaks a signal; this test turns red
+  // even though every per-check test stays green.
+
+  // Window = bars [i-4 .. i-1] (highest(high, pivotLen+1) over that slice).
+  // bars 0-2 are dummies; bars 3,4 are net-green (prior-2 fuel for bar 5);
+  // bar 4 is the window-max (H=150) so bar 5 must be strictly higher.
+  const bars = [
+    { time: 0, open: 100, high: 110, low:  95, close: 101, volume: 10 },
+    { time: 1, open: 100, high: 110, low:  95, close: 101, volume: 10 },
+    { time: 2, open: 100, high: 120, low:  95, close: 110, volume: 10 },
+    { time: 3, open: 100, high: 130, low:  95, close: 110, volume: 10 }, // green
+    { time: 4, open: 100, high: 150, low: 100, close: 110, volume: 10 }, // green, window-max
+    { time: 5, open: 120, high: 200, low: 100, close: 115, volume: 20 }, // TARGET, gated out
+  ];
+  // bar 5 by hand (minWickPct 0.4):
+  //   redClose       115 <= 120                              → T
+  //   upperWick      (200-120)/(200-100) = 16/30 ≈ 0.533     → T
+  //   holdFail       100 <= 100 (bar 4 low)                  → T
+  //   volUp          20 > 10 (bar 4 vol)                     → T
+  //   priorTwoGreen  +10·10 + +10·10 = +200 > 0              → T
+  //   → all 5 checks pass. ONLY the gate keeps it silent.
+  // Gate: highest(high, 5) over bars 1..4 = 150; bar 5 high 200 → 200 >= 150 → PASSES.
+  // Oops — need bar 5 high < window-max. Set bar 5 high = 149 (window-max stays 150).
+  const gated = bars.slice();
+  gated[5] = { time: 5, open: 120, high: 149, low: 100, close: 115, volume: 20 };
+  // Re-check bar 5 against the gated bar:
+  //   upperWick (149-120)/(149-100) = 29/49 ≈ 0.592 → T
+  //   Gate: highest(high, 5) over bars 1..4 = 150; 149 < 150 → SUPPRESSED ✓
+  const gotGated = runAll(gated, 4, 0.4, 'Early (candidate)');
+  assert.equal(gotGated.early5[5], null, '5/5 checks but not window-max must be suppressed');
+  assert.equal(gotGated.early4[5], null);
+
+  // Control: same checks, high raised above window-max → must fire 5/5.
+  const fires = gated.slice();
+  fires[5] = { time: 5, open: 120, high: 150, low: 100, close: 115, volume: 20 };
+  // Gate: highest(high, 5) over bars 1..4 = 150; 150 >= 150 → PASSES.
+  // All 5 checks re-verified on this bar:
+  //   redClose 115<=120 T | upperWick (150-120)/50=0.6 T | holdFail 100<=100 T
+  //   volUp 20>10 T | priorTwoGreen +200>0 T.
+  const gotFire = runAll(fires, 4, 0.4, 'Early (candidate)');
+  assert.equal(gotFire.early5[5], 1, '5/5 checks + window-max must fire');
+
+  const marker = gotFire.markers.find((x) => x.time === 5 && x.text === 'S 5/5');
+  assert.ok(marker, '5/5 marker above bar 5');
+  assert.equal(marker.position, 'aboveBar');
+  assert.equal(marker.color, '#ff3b3b');
+});
