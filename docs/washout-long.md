@@ -1,4 +1,4 @@
-# Washout Low
+# Washout Long
 
 A pivot-low reversal detector: fires on bars where price prints a fresh low
 but the **selling side is exhausted** — the bar itself is green with a long
@@ -12,7 +12,7 @@ low, from `spy_2026-10-15.md` §5b).
 
 ## File
 
-`custom/washout-low.js`. Indicator id in the app: `custom:washout-low`.
+`custom/washout-long.js`. Indicator id in the app: `custom:washout-long`.
 
 ## How a signal is decided
 
@@ -58,7 +58,7 @@ so the Pine names `5of5`/`4of5` map to:
 
 Each is `1` on a signal bar, `null` elsewhere (see note on `noAutoscale`
 below). Wire an alert on `early5 > 0` or `exact5 > 0`; the app's alert editor
-and the API both expose these keys through the indicator id `custom:washout-low`.
+and the API both expose these keys through the indicator id `custom:washout-long`.
 
 ## Markers on the chart
 
@@ -79,11 +79,9 @@ and the API both expose these keys through the indicator id `custom:washout-low`
   `value` field for those points, so no visible flat line is drawn.
 - **Output keys renamed** `5of5→early5`, `4of5→early4`, `5of5X→exact5`,
   `4of5X→exact4` because the repo requires output keys to start with a
-  letter. The legend labels still read "H1 5/5 (early)" etc.
-- **Indicator name shortened** to `Washout Low` (was the full Pine
-  `indicator(...)` title). The `def.name` field is the only string that
-  flows into the chart legend, so the settings-values suffix that
-  `panels.js:422` appends now looks less crowded.
+  letter. The legend labels now read "L 5/5 (early)" etc.
+- **Indicator renamed** `Washout Low` → `Washout Long` so this file pairs
+  as a directional mirror with `custom/washout-short.js` (Washout Short)
 - **No `alertcondition`** — this repo has no Pine alertcondition; alerts
   read outputs (see table above).
 - **Hand-rolled `ta.pivotlow`** — it's not in the built-in `ta` set, so the

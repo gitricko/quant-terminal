@@ -1,8 +1,11 @@
-// Washout Low — port of the Pine v6 script
+// Washout Long — port of the Pine v6 script
 //   h1_washout_low_5of5_4of5.pine  ("H1 Washout Low 5/5 + 4/5 (Early + Exact)")
+// Renamed from "Washout Low" → "Washout Long" so the sibling pair reads as
+// two directional setups (Washout Long ↔ Washout Short) rather than
+// "low" vs "short" (which can sound like overlapping ideas).
 // Reference backtest: data/tmp/README.md (H1 washout low from spy_2026-10-15.md §5b).
 //
-// A bar is a "washout low" when:
+// A bar is a "washout long" when:
 //   EARLY  mode: low <= lowest(low, pivotLen+1)  [candidate, fires in-bar]
 //   EXACT  mode: ta.pivotlow(low, pivotLen, pivotLen) confirmed  [fires pivotLen bars late]
 // and 4 or 5 of the 5 checks pass:
@@ -17,13 +20,16 @@
 //   exact5, exact4  — exact (ta.pivotlow, delayed by pivotLen)
 //   (Pine's "5of5/4of5" names can't be output keys here — must start with a letter.)
 //
-// Markers on the price chart (below the low), matching Pine plotshape:
+// Markers on the price chart (below the low), the mirror of Washout Short:
 //   triangle-up (lime)     = 5/5
 //   circle     (orange)    = 4/5
 //   exact-mode markers carry " (X)" in their text (matches the Pine original).
+//
+// Output labels + marker text use "L" (for Long) so the long/short pair
+// reads as a directional mirror.
 
 export default {
-  name: "Washout Low",
+  name: "Washout Long",
   overlay: true, // price chart — markers only for the user
   // chart.js:647 — opt every output series out of the pane's autoscale: the
   // alert-facing arrays still hold 0/1 per bar (alerts read res via indResults),
@@ -42,10 +48,10 @@ export default {
   // chart they render as zero-height bars (invisible) because noAutoscale is set
   // above, so the price scale keeps its full range.
   outputs: [
-    { key: "early5", label: "H1 5/5 (early)", kind: "histogram", color: "#32cd32" },
-    { key: "early4", label: "H1 4/5 (early)", kind: "histogram", color: "#ff8c00" },
-    { key: "exact5", label: "H1 5/5 (exact)", kind: "histogram", color: "#32cd32" },
-    { key: "exact4", label: "H1 4/5 (exact)", kind: "histogram", color: "#ff8c00" },
+    { key: "early5", label: "L 5/5 (early)", kind: "histogram", color: "#32cd32" },
+    { key: "early4", label: "L 4/5 (early)", kind: "histogram", color: "#ff8c00" },
+    { key: "exact5", label: "L 5/5 (exact)", kind: "histogram", color: "#32cd32" },
+    { key: "exact4", label: "L 4/5 (exact)", kind: "histogram", color: "#ff8c00" },
   ],
   calc(bars, p, ta) {
     const o = ta.source(bars, "open");
@@ -117,10 +123,10 @@ export default {
     const put = (i, shape, color, text) =>
       markers.push({ time: bars[i].time, position: "belowBar", shape, color, text });
     for (let i = 0; i < N; i++) {
-      if (a5[i]  === 1) put(i, "arrowUp", "#32cd32", "H1 5/5");
-      if (a4[i]  === 1) put(i, "circle",  "#ff8c00", "H1 4/5");
-      if (a5x[i] === 1) put(i, "arrowUp", "#32cd32", "H1 5/5 (X)");
-      if (a4x[i] === 1) put(i, "circle",  "#ff8c00", "H1 4/5 (X)");
+      if (a5[i]  === 1) put(i, "arrowUp", "#32cd32", "L 5/5");
+      if (a4[i]  === 1) put(i, "circle",  "#ff8c00", "L 4/5");
+      if (a5x[i] === 1) put(i, "arrowUp", "#32cd32", "L 5/5 (X)");
+      if (a4x[i] === 1) put(i, "circle",  "#ff8c00", "L 4/5 (X)");
     }
 
     return { early5: a5, early4: a4, exact5: a5x, exact4: a4x, markers };

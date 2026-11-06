@@ -1,6 +1,6 @@
-// Washout Short — the vertical mirror of custom/washout-low.js.
+// Washout Short — the vertical mirror of custom/washout-long.js.
 //
-// Washout Low buys the dip: a fresh low that got *rejected* (long lower wick)
+// Washout Long buys the dip: a fresh low that got *rejected* (long lower wick)
 // right after sellers (net-red prior 2 bars). The exact reverse is to SHORT the
 // rip — sell a fresh high that got rejected (long upper wick) right after buyers
 // (net-green prior 2 bars). Same 5-check framework, every check mirrored around
@@ -21,7 +21,7 @@
 //   early5, early4  — early (candidate, left-only)
 //   exact5, exact4  — exact (pivot confirmed, delayed)
 //
-// Markers on the price chart (above the high), the mirror of Washout Low:
+// Markers on the price chart (above the high), the mirror of Washout Long:
 //   arrow-down (red #ff3b3b) = 5/5
 //   circle     (orange)      = 4/5
 //   exact-mode markers carry " (X)" in their text.
@@ -89,7 +89,7 @@ export default {
     }
 
     // ---- 2) EXACT (confirmed pivot high): h[i] >= h[j] for j in [i-L..i+L] ----
-    // Mirrors Washout Low's inline pivotlow: a pivot at bar i is confirmed once
+    // Mirrors Washout Long's inline pivotlow: a pivot at bar i is confirmed once
     // we know L bars after it. We scan i from L to N-1-L and, if confirmed, set
     // the arrays at the *pivot bar i* itself (Pine's offset).
     const showExact = p.mode !== "Early (candidate)";
@@ -115,7 +115,7 @@ export default {
       else if (showExact && k === 4) a4x[i] = 1;
     }
 
-    // ---- Markers above the high, the mirror of Washout Low's belowBar markers ----
+    // ---- Markers above the high, the mirror of Washout Long's belowBar markers ----
     const markers = [];
     const put = (i, shape, color, text) =>
       markers.push({ time: bars[i].time, position: "aboveBar", shape, color, text });
