@@ -88,16 +88,18 @@ and the API both expose these keys through the indicator id `custom:washout-long
   EXACT branch does the `low[i] <= low[j] for j in [i−L, i+L]` test inline.
   Identical semantics to Pine's `ta.pivotlow(low, L, L)` with left=right=L.
 
-## Verification (ran 2026-11-02)
+## Verification (ran 2026-11-06, after rename to Washout Long)
 
-- `npm test` — 196/196 pass.
-- `validateIndicator(def, { run: true })` — PASS.
-- Run on synthetic 40-bar series:
-  - 5/5 fires at the intended interior pivot; EARLY5 + EXACT5 both at bar 18.
-  - 4/5 fires when one check is relaxed (wick % raised to 1.0) — negative
-    control, correct drop from 5/5 to 4/5.
-  - `early5[signal] === 1` → `early5 > 0` returns true; non-signal bars are
-    `null` so the alert condition does not fire.
+- `node --test test/washout-long.test.js` — 7/7 pass
+- `npm test` — 222/222 pass
+- `npm run check` — READY (offline tests, data sources, live smoke all PASS)
+- Covered by the test suite:
+  - 5/5 fires at the intended interior pivot; EARLY5 + EXACT5 both fire at the
+    same signal bar.
+  - 4/5 fires when one check is relaxed — a negative control that drops a
+    bar from 5/5 to 4/5.
+  - Non-signal bars are `null` so the alert condition does not fire; a
+    confirmed pivot low that fails the green-close check stays `null`.
 
 ## How to extend
 
