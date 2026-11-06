@@ -1,4 +1,4 @@
-# Washout Low
+# Washout Long
 
 A pivot-low reversal detector: fires on bars where price prints a fresh low
 but the **selling side is exhausted** — the bar itself is green with a long
@@ -10,9 +10,13 @@ Ported from the Pine v6 script
 the reference backtest for which lives in `data/tmp/README.md` (H1 washout
 low, from `spy_2026-10-15.md` §5b).
 
+> **See also:** the vertical mirror — [Washout Short](./washout-short.md),
+> which shorts the rip (a fresh high rejection after net-green buyers) using
+> the same 5-check framework flipped around the vertical midpoint.
+
 ## File
 
-`custom/washout-low.js`. Indicator id in the app: `custom:washout-low`.
+`custom/washout-long.js`. Indicator id in the app: `custom:washout-long`.
 
 ## How a signal is decided
 
@@ -58,7 +62,7 @@ so the Pine names `5of5`/`4of5` map to:
 
 Each is `1` on a signal bar, `null` elsewhere (see note on `noAutoscale`
 below). Wire an alert on `early5 > 0` or `exact5 > 0`; the app's alert editor
-and the API both expose these keys through the indicator id `custom:washout-low`.
+and the API both expose these keys through the indicator id `custom:washout-long`.
 
 ## Markers on the chart
 
@@ -79,27 +83,27 @@ and the API both expose these keys through the indicator id `custom:washout-low`
   `value` field for those points, so no visible flat line is drawn.
 - **Output keys renamed** `5of5→early5`, `4of5→early4`, `5of5X→exact5`,
   `4of5X→exact4` because the repo requires output keys to start with a
-  letter. The legend labels still read "H1 5/5 (early)" etc.
-- **Indicator name shortened** to `Washout Low` (was the full Pine
-  `indicator(...)` title). The `def.name` field is the only string that
-  flows into the chart legend, so the settings-values suffix that
-  `panels.js:422` appends now looks less crowded.
+  letter. The legend labels now read "L 5/5 (early)" etc.
+- **Indicator renamed** `Washout Low` → `Washout Long` so this file pairs
+  as a directional mirror with `custom/washout-short.js` (Washout Short)
 - **No `alertcondition`** — this repo has no Pine alertcondition; alerts
   read outputs (see table above).
 - **Hand-rolled `ta.pivotlow`** — it's not in the built-in `ta` set, so the
   EXACT branch does the `low[i] <= low[j] for j in [i−L, i+L]` test inline.
   Identical semantics to Pine's `ta.pivotlow(low, L, L)` with left=right=L.
 
-## Verification (ran 2026-11-02)
+## Verification (ran 2026-11-06, after rename to Washout Long)
 
-- `npm test` — 196/196 pass.
-- `validateIndicator(def, { run: true })` — PASS.
-- Run on synthetic 40-bar series:
-  - 5/5 fires at the intended interior pivot; EARLY5 + EXACT5 both at bar 18.
-  - 4/5 fires when one check is relaxed (wick % raised to 1.0) — negative
-    control, correct drop from 5/5 to 4/5.
-  - `early5[signal] === 1` → `early5 > 0` returns true; non-signal bars are
-    `null` so the alert condition does not fire.
+- `node --test test/washout-long.test.js` — 7/7 pass
+- `npm test` — 222/222 pass
+- `npm run check` — READY (offline tests, data sources, live smoke all PASS)
+- Covered by the test suite:
+  - 5/5 fires at the intended interior pivot; EARLY5 + EXACT5 both fire at the
+    same signal bar.
+  - 4/5 fires when one check is relaxed — a negative control that drops a
+    bar from 5/5 to 4/5.
+  - Non-signal bars are `null` so the alert condition does not fire; a
+    confirmed pivot low that fails the green-close check stays `null`.
 
 ## How to extend
 
