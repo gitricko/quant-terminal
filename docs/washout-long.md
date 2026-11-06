@@ -10,6 +10,10 @@ Ported from the Pine v6 script
 the reference backtest for which lives in `data/tmp/README.md` (H1 washout
 low, from `spy_2026-10-15.md` §5b).
 
+> **See also:** the vertical mirror — [Washout Short](./washout-short.md),
+> which shorts the rip (a fresh high rejection after net-green buyers) using
+> the same 5-check framework flipped around the vertical midpoint.
+
 ## File
 
 `custom/washout-long.js`. Indicator id in the app: `custom:washout-long`.
