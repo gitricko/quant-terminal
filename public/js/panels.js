@@ -745,8 +745,19 @@ export function initPanels(app) {
         for (const side of [rule.left, rule.right]) {
           const key = sanitized(side);
           if (!key || !side.id) continue;
-          for (const [alias, spec] of Object.entries(s.indicators || {}))
-            if (spec && spec.id === side.id) alias2Key.set(alias.toLowerCase(), key);
+          for (const [alias, spec] of Object.entries(s.indicators || {})) {
+            if (!(spec && spec.id === side.id)) continue;
+            const a = alias.toLowerCase();
+            const prev = alias2Key.get(a);
+            if (prev && prev !== key)
+              console.warn(
+                'strategy alias "' + alias +
+                  '" is used by two rules with different parameter sets (key "' + prev +
+                  '" vs "' + key + '"); stopLoss/exit rules bind to whichever was ' +
+                  'processed - rename one of the aliases to disambiguate'
+              );
+            alias2Key.set(a, key);
+          }
         }
     const sl = tState.raw.stopLoss;
     if (sl && typeof sl === "object" && typeof sl.indicator === "string") {

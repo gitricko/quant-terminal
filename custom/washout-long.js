@@ -16,12 +16,10 @@
 //   5. net-red prior 2 bars: sign(c-o)*v  [at -1 and -2]  sums < 0
 //
 // Outputs (for alerts; see docs/custom-indicators.md §Alerts):
-//   early5, early4  — early (candidate, left-only)
+//   early5, early4  — early (candidate, left-only); early4 fires ONLY at exactly-4 (k===4, 5/5 bars excluded)
 //   exact5, exact4  — exact (ta.pivotlow, delayed by pivotLen)
-//   only4           — exactly-4 tier (fires where 4/5 passes but NOT 5/5 — useful for
-//                     "4/5 but not 5/5" grid cells so 5/5 and 4/5 rows don't overlap)
 //   cc5 / ch5       — 5/5 pulse CONFIRMED one bar later: close[T+1] > close[T] / > high[T]
-//   cc4 / ch4       — same, anchored to the 4/5 pulse (fires on 4/5 or 5/5 pulses, Pine parity)
+//   cc4 / ch4       — same, but anchored to ANY pulse tier: fires when a 4/5 OR a 5/5 pulse confirms
 //   triggerLow      — the anchor stop for the strategy: low[i] at every pulse bar (5/5 or 4/5),
 //                     NaN elsewhere. The backtester resolves the final stop via stopLoss.refBar:
 //                       pulse rows → refBar 'signal' (fires at T)     reads triggerLow[T] = low[T]
@@ -61,7 +59,6 @@ export default {
     { key: "early4", label: "L 4/5 (early)", kind: "histogram", color: "#ff8c00" },
     { key: "exact5", label: "L 5/5 (exact)", kind: "histogram", color: "#32cd32" },
     { key: "exact4", label: "L 4/5 (exact)", kind: "histogram", color: "#ff8c00" },
-    { key: "only4", label: "L 4/5 only (no 5/5)", kind: "histogram", color: "#ff8c00" },
     { key: "cc5", label: "L 5/5 (confirmed: close>close)", kind: "histogram", color: "#32cd32" },
     { key: "ch5", label: "L 5/5 (confirmed: close>high)", kind: "histogram", color: "#32cd32" },
     { key: "cc4", label: "L 4/5 (confirmed: close>close)", kind: "histogram", color: "#ff8c00" },
@@ -144,15 +141,9 @@ export default {
       if (a4x[i] === 1) put(i, "circle",  "#ff8c00", "L 4/5 (X)");
     }
 
-    // ---- 3) ONLY-4 (exactly 4 of 5 — 5/5 bars excluded). Used by strategy grid
-    // cells that want "4/5 but not 5/5" without relying on a tier-exclusivity
-    // flag in the backtester. NaN where a5 or a4 don't apply. ----
-    const only4 = a4.map((x, i) => (x === 1 && a5[i] !== 1 ? 1 : x)); // x===1 means early4; a5[i]!==1 excludes 5/5
+    // ---- 3) (v0.4) the only4 output was dropped - early4 already fires only at exactly-4 (k===4, 5/5 excluded), so a separate 4/5-only series was a provable duplicate. See docs/strategies/washout-long-spy.md.
 
     // ---- 4) Confirmation outputs (T is the pulse bar; these fire at T+1) ----
-    // Pine semantics keep `early4` inclusive (k===4 fires for k in {4,5}); so cc4/ch4 are
-    // anchored to "any of early5 OR early4" as well — same parity as cc5/ch5. If 5/5 also
-    // confirmed, both cc5 and cc4 fire (the caller can prefer cc5 in the grid).
     const cc5 = new Array(N).fill(NaN), ch5 = new Array(N).fill(NaN);
     const cc4 = new Array(N).fill(NaN), ch4 = new Array(N).fill(NaN);
     for (let i = 1; i < N; i++) {
@@ -166,7 +157,7 @@ export default {
     }
 
     // ---- 5) triggerLow — single canonical stop series for the strategy's anchor stop ----
-    //   triggerLow[i] = low[i] at every pulse bar (5/5 OR 4/5 OR only4). NaN elsewhere.
+    //   triggerLow[i] = low[i] at every pulse bar (5/5 OR 4/5). NaN elsewhere.
     //   Strategy's stopLoss spec then picks the right one with the engine's refBar:
     //     pulse rows → { indicator:'washout-long', output:'triggerLow', refBar:'signal' }
     //                    fires AT the pulse bar (T)      → reads triggerLow[T] = low[T] ✓
@@ -181,7 +172,7 @@ export default {
 
     return {
       early5: a5, early4: a4, exact5: a5x, exact4: a4x,
-      only4, cc5, ch5, cc4, ch4, triggerLow,
+      cc5, ch5, cc4, ch4, triggerLow,
       markers,
     };
   },

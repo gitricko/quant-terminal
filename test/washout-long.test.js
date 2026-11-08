@@ -67,7 +67,7 @@ function runAll(barRows, L, WICK, mode) {
   const res = ind.calc(barRows, { pivotLen: L, minWickPct: WICK, mode }, ta);
   return {
     early5: res.early5, early4: res.early4, exact5: res.exact5, exact4: res.exact4,
-    only4: res.only4, cc5: res.cc5, ch5: res.ch5, cc4: res.cc4, ch4: res.ch4,
+    cc5: res.cc5, ch5: res.ch5, cc4: res.cc4, ch4: res.ch4,
     triggerLow: res.triggerLow,
     markers: res.markers,
   };
@@ -139,7 +139,6 @@ test('triggerLow = low of the 5/5 pulse bar; NaN anywhere else', () => {
   const got = runAll(bars, 1, 0.4, 'Early (candidate)');
   assert.equal(got.early5[2], 1);
   assert.equal(got.early4[2], null, '5/5 bar does not get a 4/5 (exclusive branch in the indicator)');
-  assert.equal(got.only4[2], null, 'only4 excludes 5/5');
   assert.equal(got.cc5[3], 1, 'cc5 fires (close 70 > prior close 60)');
   assert.equal(got.ch5[3], 1, 'ch5 fires (close 70 > prior high 65)');
   assert.equal(got.cc4[3], 1, 'cc4 fires (any-tier confirm — Pine parity)');
@@ -166,7 +165,7 @@ test('triggerLow = low of the 4/5 pulse bar; confirm fires cc4/ch4 but not cc5/c
   const got = runAll(bars, 1, 0.4, 'Early (candidate)');
   assert.equal(got.early5[2], null, 'NOT 5/5 (wick 0.25 < threshold)');
   assert.equal(got.early4[2], 1, 'IS 4/5');
-  assert.equal(got.only4[2], 1, 'only4 fires for a 4-only pulse');
+  assert.equal(got.early4[2], 1, 'early4 fires for a 4-only pulse (exactly-4 tier)');
   assert.equal(got.cc4[3], 1, 'cc4 fires (close 72 > prior close 57)');
   assert.equal(got.ch4[3], 1, 'ch4 fires (close 72 > prior high 70)');
   assert.ok(Number.isNaN(got.cc5[3]), 'cc5 stays NaN (no 5/5 pulse to confirm)');

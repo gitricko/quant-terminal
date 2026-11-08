@@ -1,7 +1,7 @@
-# Washout Long on SPY — strategy spec (v0.3, decisions locked)
+# Washout Long on SPY — strategy spec (v0.4, decisions locked)
 
-Status: **built and swept** (v0.3, 2026-11-08). Data committed to test/fixtures/ per section 9;
-section 11 is the final 196-cell grid - net loss on every cell, with the plain-language
+Status: **built and swept** (v0.4, 2026-11-08). Data committed to test/fixtures/ per section 9;
+section 11 is the final 168-cell grid - net loss on every cell, with the plain-language
 read of why. Section 13 lists what stays to close (strategy test file, `npm run check`).
 
 ## 1. Signal
@@ -150,17 +150,19 @@ this doc (one canonical place; `results.json` is the machine-readable twin).
 full sweep well under ~1 min. Sweep runner: `node scripts/sweep-washout-spy.js`
 (plain node, no deps; imports the library directly like `test/*.test.js` do).
 
-## 11. Results (v0.3 — final sweep, 2026-11-08)
+## 11. Results (v0.4 — final sweep, 2026-11-08)
 
 Data: `test/fixtures/spy-{1m,5m,15m,30m}.json`, refetched to Yahoo's hard
 ceilings — 1m = 3019 bars (8 days), 5m/15m/30m = 4661/1554/777 bars (60
 days). 3m: not available from this source, dropped.
-Grid: 7 tiers × 7 exits × 4 TFs = **196 cells**, all with `forcedFlatTime:
+Grid: 6 tiers × 7 exits × 4 TFs = **168 cells** (v0.4: the `only4` tier was
+dropped — it was a provable duplicate of `early4`, which already fires only at
+exactly-4 via its `k===4` branch), all with `forcedFlatTime:
 "16:00"` and costs 0.03% fee + 0.03% slippage + 0.03% spread (held as
 variables per §12.6 — the §12.6 defaults were never the run values).
 Runner: `node scripts/sweep-washout-spy.js` → `results/washout-spy-sweep.csv`.
 
-**Verdict: every one of the 196 cells is a net loss.** Best PF in the whole
+**Verdict: every one of the 168 cells is a net loss.** Best PF in the whole
 sweep: 0.35, on 4 trades. No cell is positive; win rates run 0–25%.
 
 Top cell per TF (ranked by profit factor among cells with trades):
@@ -172,8 +174,23 @@ Top cell per TF (ranked by profit factor among cells with trades):
 | 15m | 4confirm rr-2.0  | 21     | 14.3  | 0.11 | -3.82 |
 | 30m | 4confirm rr-1.0  | 4      | 25.0  | 0.35 | -0.59 |
 
-The saved UI strategy (5m, early4, rr-1.5) is rank **12 of 49** non-zero 5m
+The saved UI strategy (5m, early4, rr-1.5) is rank **12 of 42** non-zero 5m
 cells: 117 trades, 15.4% wins, PF 0.10, PnL -16.78%.
+
+### 11.1 Read the grid carefully (tier semantics + sample size)
+
+- **`early4` is exactly 4/5.** It fires only when the five-check sum is
+  exactly 4 (`k===4` branch); a 5/5 bar never sets `early4`. There is no
+  separate "4/5-only" output — `only4` was dropped in v0.4 because it was a
+  provable duplicate of that exclusive tier.
+- **`4confirm` / `4confhigh` (cc4/ch4) confirm ANY pulse tier** — a 4/5 or a
+  5/5 pulse. So each of them **includes** the `5confirm`/`5confhigh` (cc5/ch5)
+  bars, same exit, every TF (checked against the CSV: e.g. 5m stop-only —
+  4confirm 57 trades vs 5confirm 2). "4confirm" is not a 4/5-only subset;
+  don't read it as excluding the 5/5 confirms.
+- **1m rows: 8 market sessions total** (3019 bars — Yahoo's hard 1m ceiling).
+  Treat all 1m results as directionally indicative at best; the 5m/15m/30m
+  rows cover the full 60-day window and have far more statistical power.
 
 RR gradient on that same cell (only the exit axis moves):
 

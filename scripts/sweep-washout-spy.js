@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Grid sweep for the Washout Long SPY strategy (docs/strategies/washout-long-spy.md).
-// 3 tiers × 3 confirmation variants × 6 exits × 4 timeframes — no trend filter yet.
+// 6 tiers x 7 exits x 4 TFs -> 168 cells (v0.4: the provably-duplicate only4 tier was dropped)
 //
 // Zero runtime deps. Reads fixtures from test/fixtures; writes results.csv + prints a table.
 //
@@ -50,7 +50,6 @@ const SESSION = { forcedFlatTime: "16:00" };
 const TIERS = [
   { name: "early5", output: "early5" },
   { name: "early4", output: "early4" },
-  { name: "only4", output: "only4" },
   { name: "5confirm", output: "cc5" },
   { name: "5confhigh", output: "ch5" },
   { name: "4confirm", output: "cc4" },
@@ -173,7 +172,7 @@ if (!rows.length) {
 // ------------------------------------------------------------------ print
 const by = {
   sharpe: (a) => (a.sharpe == null ? -Infinity : a.sharpe),
-  by     : (a) => (a.pf     == null ? -Infinity : a.pf),
+  pf     : (a) => (a.pf     == null ? -Infinity : a.pf),
   pnl:    (a) => (a.pnl    == null ? -Infinity : a.pnl),
 }[SORT];
 const sorted = [...rows].sort((a, b) => by(b) - by(a));

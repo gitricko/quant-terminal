@@ -253,7 +253,7 @@ export function backtest(bars, strategy, { subBars = null } = {}) {
   const exitQuote = (price) => price * (1 - pos.side * half);
   // Anchor stop: strategy.stopLoss = { indicator, output, refBar? } → a price series read
   // from an indicator output at or before the fill bar. 'refBar' selects the mode:
-  //   'signal' (default) — scan backward up to 3 bars from fill for the nearest non-NaN value.
+  //   'signal' (default) — scan back up to 4 prior bars (fill bar and i-1..i-4) for the nearest non-NaN value.
   //                       This is the common case: the indicator fires on bar T, the pending
   //                       entry fills at T+1, so triggerLow[T] is the value we need.
   //   'prior'    — read series[i-1] exactly (one bar back).
