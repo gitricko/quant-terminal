@@ -163,6 +163,8 @@ Reusable agent workflows live in `.agents/skills/<name>/SKILL.md`. Load the matc
 before doing the task. Currently:
 
 - `add-indicator/` — implement, test, and register a custom indicator.
+- `backtest-strategy/` — build, run, and judge strategies with the local backtester + quant checks.
+- `debug-strategy-tester-ui/` — trace Strategy Tester payload errors to the right transform; verify in the real browser.
 - `add-api-endpoint/` — add or fix an `/api/*` route in `server.js`.
 - `qt-verify/` — the canonical verification path + how to read a FAIL.
 - `ovr-playbook/` — maintain the IMIT OVR banner + Playbook without breaking upstream.

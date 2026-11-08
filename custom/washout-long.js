@@ -16,8 +16,15 @@
 //   5. net-red prior 2 bars: sign(c-o)*v  [at -1 and -2]  sums < 0
 //
 // Outputs (for alerts; see docs/custom-indicators.md §Alerts):
-//   early5, early4  — early (candidate, left-only)
+//   early5, early4  — early (candidate, left-only); early4 fires ONLY at exactly-4 (k===4, 5/5 bars excluded)
 //   exact5, exact4  — exact (ta.pivotlow, delayed by pivotLen)
+//   cc5 / ch5       — 5/5 pulse CONFIRMED one bar later: close[T+1] > close[T] / > high[T]
+//   cc4 / ch4       — same, but anchored to ANY pulse tier: fires when a 4/5 OR a 5/5 pulse confirms
+//   triggerLow      — the anchor stop for the strategy: low[i] at every pulse bar (5/5 or 4/5),
+//                     NaN elsewhere. The backtester resolves the final stop via stopLoss.refBar:
+//                       pulse rows → refBar 'signal' (fires at T)     reads triggerLow[T] = low[T]
+//                       cc/ch rows → refBar 'prior'  (fires at T+1)   reads triggerLow[T] = low[T]
+//                     i.e. "the low of the trigger (pulse) bar" in both cases, per the spec.
 //   (Pine's "5of5/4of5" names can't be output keys here — must start with a letter.)
 //
 // Markers on the price chart (below the low), the mirror of Washout Short:
@@ -52,6 +59,11 @@ export default {
     { key: "early4", label: "L 4/5 (early)", kind: "histogram", color: "#ff8c00" },
     { key: "exact5", label: "L 5/5 (exact)", kind: "histogram", color: "#32cd32" },
     { key: "exact4", label: "L 4/5 (exact)", kind: "histogram", color: "#ff8c00" },
+    { key: "cc5", label: "L 5/5 (confirmed: close>close)", kind: "histogram", color: "#32cd32" },
+    { key: "ch5", label: "L 5/5 (confirmed: close>high)", kind: "histogram", color: "#32cd32" },
+    { key: "cc4", label: "L 4/5 (confirmed: close>close)", kind: "histogram", color: "#ff8c00" },
+    { key: "ch4", label: "L 4/5 (confirmed: close>high)", kind: "histogram", color: "#ff8c00" },
+    { key: "triggerLow", label: "stop: low of the pulse (trigger) bar", kind: "line", color: "#888888" },
   ],
   calc(bars, p, ta) {
     const o = ta.source(bars, "open");
@@ -129,6 +141,39 @@ export default {
       if (a4x[i] === 1) put(i, "circle",  "#ff8c00", "L 4/5 (X)");
     }
 
-    return { early5: a5, early4: a4, exact5: a5x, exact4: a4x, markers };
+    // ---- 3) (v0.4) the only4 output was dropped - early4 already fires only at exactly-4 (k===4, 5/5 excluded), so a separate 4/5-only series was a provable duplicate. See docs/strategies/washout-long-spy.md.
+
+    // ---- 4) Confirmation outputs (T is the pulse bar; these fire at T+1) ----
+    const cc5 = new Array(N).fill(NaN), ch5 = new Array(N).fill(NaN);
+    const cc4 = new Array(N).fill(NaN), ch4 = new Array(N).fill(NaN);
+    for (let i = 1; i < N; i++) {
+      const T = i - 1;
+      const fired5 = a5[T] === 1;
+      const firedAny = fired5 || a4[T] === 1;
+      if (fired5 && c[i] > c[T]) cc5[i] = 1;
+      if (fired5 && c[i] > h[T]) ch5[i] = 1;
+      if (firedAny && c[i] > c[T]) cc4[i] = 1;
+      if (firedAny && c[i] > h[T]) ch4[i] = 1;
+    }
+
+    // ---- 5) triggerLow — single canonical stop series for the strategy's anchor stop ----
+    //   triggerLow[i] = low[i] at every pulse bar (5/5 OR 4/5). NaN elsewhere.
+    //   Strategy's stopLoss spec then picks the right one with the engine's refBar:
+    //     pulse rows → { indicator:'washout-long', output:'triggerLow', refBar:'signal' }
+    //                    fires AT the pulse bar (T)      → reads triggerLow[T] = low[T] ✓
+    //     cc/ch rows → { indicator:'washout-long', output:'triggerLow', refBar:'prior'  }
+    //                    fires AT the confirm bar (T+1)  → reads triggerLow[T] = low[T] ✓
+    //   In both cases the stop is "the low of the pulse (trigger) bar" — the user's stated
+    //   definition. The RR target is computed from this stop distance in backtest.openPos.
+    const triggerLow = new Array(N).fill(NaN);
+    for (let i = 0; i < N; i++) {
+      if (a5[i] === 1 || a4[i] === 1) triggerLow[i] = l[i];
+    }
+
+    return {
+      early5: a5, early4: a4, exact5: a5x, exact4: a4x,
+      cc5, ch5, cc4, ch4, triggerLow,
+      markers,
+    };
   },
 };

@@ -97,7 +97,8 @@ function operandHtml(o) {
       extra += `<select data-out>${outs.map((k) => `<option ${k === o.output ? "selected" : ""}>${k}</option>`).join("")}</select>`;
   }
   const lineData = o.kind === "line" ? ` data-line="${esc(JSON.stringify(o.line))}" data-label="${esc(o.label || "Drawn line")}"` : "";
-  return `<span class="operand"${lineData}><select data-kind>${opts}</select>${extra}</span>`;
+  const pParams = o.kind === "ind" ? ` data-params="${esc(JSON.stringify(o.params || {}))}"` : "";
+  return `<span class="operand"${lineData}${pParams}><select data-kind>${opts}</select>${extra}</span>`;
 }
 
 function readOperand(span) {
@@ -112,6 +113,15 @@ function readOperand(span) {
   const id = k.slice(2),
     def = BY_ID[id];
   const params = {};
+  // Restore the full param set carried on the span (operandHtml stashes it there so
+  // the DOM round-trip does not silently drop non-"main" params like minWickPct/mode);
+  // then overlay the one editable "main" input on top so its current value wins.
+  if (span.dataset.params) {
+    try {
+      const stored = JSON.parse(span.dataset.params);
+      if (stored && typeof stored === "object") Object.assign(params, stored);
+    } catch (e) {}
+  }
   const p = span.querySelector("[data-p]");
   if (p) params[p.dataset.p] = Number(p.value);
   return {
@@ -711,6 +721,70 @@ export function initPanels(app) {
     for (const k of ["stopLossPct", "takeProfitPct", "trailingStopPct", "maxBarsInTrade"])
       tState.settings[k] = s[k] || 0;
     tState.settings.exitMatch = s.exitMatch === "any" ? "any" : "all";
+    // Keep strategy fields the form does not render (anchor stopLoss, rrMultiple,
+    // forcedFlatTime, …) so Run/Save/JSON round-trips them instead of dropping them.
+    // The form renames its indicator aliases (compileRules sanitises "washout" into a
+    // key like custom_washout_long_pivotLen_4_minWickPct_0.4_…) and drops aliases no
+    // rule references; remap stopLoss.indicator to the sanitized key of the rule that
+    // uses the same indicator, or restore the alias into the indicator map.
+    tState.raw = { ...(s || {}) };
+    const sanitized = (o) =>
+      o && typeof o === "object" && o.kind === "ind"
+        ? `${o.id}_${Object.values(o.params || {}).join("_")}`.replace(
+            /[^a-z0-9_]/gi,
+            "_",
+          )
+        : null;
+    const alias2Key = new Map(); // alias lowercased -> sanitized key (from rules)
+    const operandGroups = tState.groups || {};
+    // Build alias->key by INDICATOR ID (the DOM drops non-"main" indicator params, so
+    // strict params comparison would fail after a round-trip; match on id and map to the
+    // sanitized key the rules actually carry).
+    for (const k in operandGroups)
+      for (const rule of operandGroups[k])
+        for (const side of [rule.left, rule.right]) {
+          const key = sanitized(side);
+          if (!key || !side.id) continue;
+          for (const [alias, spec] of Object.entries(s.indicators || {})) {
+            if (!(spec && spec.id === side.id)) continue;
+            const a = alias.toLowerCase();
+            const prev = alias2Key.get(a);
+            if (prev && prev !== key)
+              console.warn(
+                'strategy alias "' + alias +
+                  '" is used by two rules with different parameter sets (key "' + prev +
+                  '" vs "' + key + '"); stopLoss/exit rules bind to whichever was ' +
+                  'processed - rename one of the aliases to disambiguate'
+              );
+            alias2Key.set(a, key);
+          }
+        }
+    const sl = tState.raw.stopLoss;
+    if (sl && typeof sl === "object" && typeof sl.indicator === "string") {
+      const alias = String(sl.indicator).split(".")[0];
+      const key = alias2Key.get(alias.toLowerCase());
+      if (key) {
+        tState.raw.stopLoss = {
+          ...sl,
+          indicator: `${key}${String(sl.indicator).slice(alias.length)}`,
+        };
+      } else if (s.indicators && s.indicators[alias]) {
+        // No rule referenced this alias → the form dropped it; restore it to the map.
+        const spec = s.indicators[alias];
+        tState.raw.indicators = {
+          [alias]: { id: spec.id, params: spec.params || {} },
+        };
+      }
+    }
+  }
+  // Merge pass-through strategy fields (stopLoss, rrMultiple, forcedFlatTime, or any
+  // future field with no form widget) back into the payload the tester runs/saves.
+  function extraStrategyFields() {
+    const raw = tState.raw || {};
+    const out = {};
+    for (const k of ["stopLoss", "rrMultiple", "forcedFlatTime"])
+      if (raw[k] != null) out[k] = raw[k];
+    return out;
   }
   if (!tState.groups) strategyToUi(EXAMPLE_STRATEGIES["EMA cross (9/21)"]);
 
@@ -723,7 +797,7 @@ export function initPanels(app) {
       tState.settings[el.dataset.s] =
         el.type === "number" ? Number(el.value) : el.value;
     });
-    return { ...compileRules(groups), ...tState.settings };
+    return { ...extraStrategyFields(), ...compileRules(groups), ...tState.settings };
   }
 
   function renderTester() {

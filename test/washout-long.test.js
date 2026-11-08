@@ -65,7 +65,12 @@ function naiveCalc(barRows, L, WICK, mode) {
 function runAll(barRows, L, WICK, mode) {
   const ta = { source, lowest };
   const res = ind.calc(barRows, { pivotLen: L, minWickPct: WICK, mode }, ta);
-  return { early5: res.early5, early4: res.early4, exact5: res.exact5, exact4: res.exact4, markers: res.markers };
+  return {
+    early5: res.early5, early4: res.early4, exact5: res.exact5, exact4: res.exact4,
+    cc5: res.cc5, ch5: res.ch5, cc4: res.cc4, ch4: res.ch4,
+    triggerLow: res.triggerLow,
+    markers: res.markers,
+  };
 }
 
 test('Washout Long matches an independent naive implementation (early mode)', () => {
@@ -116,6 +121,58 @@ test('a hand-built bottom bar fires a 5/5 early signal below the bar', () => {
   assert.equal(m.position, 'belowBar');
   assert.equal(m.shape, 'arrowUp');
   assert.equal(m.color, '#32cd32');
+});
+
+test('triggerLow = low of the 5/5 pulse bar; NaN anywhere else', () => {
+  // 4-bar fixture, L=1, WICK=0.4, early mode.
+  //   bar 0 red  d = −30 (feeds check 5)
+  //   bar 1 green, high 60 < bar 2 high 65 → reclaim ✓; d = +25 (feeds check 5: +25 − 30 = −5 < 0 ✓)
+  //   bar 2 = 5/5 PULSE (low 38 ≤ bar 1 low 62 → gate ✓):
+  //     green 60≥55 T · wick (55−38)/(65−38)=0.63≥0.4 T · reclaim 65≥60 T · vol 50>25 T → k=5
+  //   bar 3 CONFIRMs 5/5 (close 70 > prior close 60); its own low (50) ≠ pulse low (38).
+  const bars = [
+    { time: 0, open: 68, high: 70, low: 60, close: 62, volume: 30 },  // red, d=−30
+    { time: 1, open: 58, high: 60, low: 62, close: 63, volume: 25 },  // green, high 60 < 65
+    { time: 2, open: 55, high: 65, low: 38, close: 60, volume: 50 },  // 5/5 PULSE, low 38
+    { time: 3, open: 59, high: 74, low: 50, close: 70, volume: 20 },  // confirm, low 50 ≠ 38
+  ];
+  const got = runAll(bars, 1, 0.4, 'Early (candidate)');
+  assert.equal(got.early5[2], 1);
+  assert.equal(got.early4[2], null, '5/5 bar does not get a 4/5 (exclusive branch in the indicator)');
+  assert.equal(got.cc5[3], 1, 'cc5 fires (close 70 > prior close 60)');
+  assert.equal(got.ch5[3], 1, 'ch5 fires (close 70 > prior high 65)');
+  assert.equal(got.cc4[3], 1, 'cc4 fires (any-tier confirm — Pine parity)');
+  assert.equal(got.ch4[3], 1, 'ch4 fires');
+  assert.equal(got.triggerLow[0], NaN);
+  assert.equal(got.triggerLow[1], NaN);
+  assert.equal(got.triggerLow[2], 38, 'stop = LOW OF THE 5/5 PULSE BAR');
+  assert.notEqual(got.triggerLow[2], 50, 'must NOT be confirm bar low');
+  assert.equal(got.triggerLow[3], NaN, 'NaN on confirm bar (engine reads triggerLow[T-1] via refBar prior)');
+});
+
+test('triggerLow = low of the 4/5 pulse bar; confirm fires cc4/ch4 but not cc5/ch5', () => {
+  // 4-bar fixture, L=1, WICK=0.4, early mode. Bars 0-1 red → check 5 at bar 2.
+  // Bar 1 red above the pulse low (gate). Bar 2 = 4/5 pulse (wick kept UNDER threshold):
+  //   gate  low 50 <= min(63,50)=50 ✓ · green 57>=55 T · wick (55−50)/(70-50)=5/20=0.25<0.4 F
+  //   reclaim 70>=65 T · vol 40>20 T → k=4
+  // Bar 3 CONFIRMs the 4/5 (close 72 > prior close 57); its own low (55) differs from pulse low (50).
+  const bars = [
+    { time: 0, open: 72, high: 73, low: 65, close: 66, volume: 30 },  // red
+    { time: 1, open: 69, high: 70, low: 63, close: 64, volume: 20 },  // red, above pulse low (gate)
+    { time: 2, open: 55, high: 70, low: 50, close: 57, volume: 40 },  // 4/5 PULSE (wick under threshold), low 50
+    { time: 3, open: 58, high: 75, low: 55, close: 72, volume: 25 },  // confirm, low 55 ≠ 50
+  ];
+  const got = runAll(bars, 1, 0.4, 'Early (candidate)');
+  assert.equal(got.early5[2], null, 'NOT 5/5 (wick 0.25 < threshold)');
+  assert.equal(got.early4[2], 1, 'IS 4/5');
+  assert.equal(got.early4[2], 1, 'early4 fires for a 4-only pulse (exactly-4 tier)');
+  assert.equal(got.cc4[3], 1, 'cc4 fires (close 72 > prior close 57)');
+  assert.equal(got.ch4[3], 1, 'ch4 fires (close 72 > prior high 70)');
+  assert.ok(Number.isNaN(got.cc5[3]), 'cc5 stays NaN (no 5/5 pulse to confirm)');
+  assert.ok(Number.isNaN(got.ch5[3]), 'ch5 stays NaN');
+  assert.equal(got.triggerLow[2], 50, 'stop = LOW OF THE 4/5 PULSE BAR');
+  assert.notEqual(got.triggerLow[2], 55, 'must NOT be confirm bar low');
+  assert.equal(got.triggerLow[3], NaN, 'NaN on confirm bar');
 });
 
 test('a bar that is a fresh low but NOT bullish does not fire', () => {

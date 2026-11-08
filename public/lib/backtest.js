@@ -9,6 +9,10 @@
 //   exitMatch: 'all',        // 'any': exit on whichever exit condition fires first
 //   maxBarsInTrade: 0,       // time exit: close after this many bars if nothing else has (0 = off)
 //   stopLossPct: 0, takeProfitPct: 0, trailingStopPct: 0,
+//   stopLoss: { indicator, output, refBar: 'signal' | 'prior' },  // anchor stop: price read from an indicator output (e.g. 'custom:washout-long' 'stopLevel')
+//   rrMultiple: 0,         // when stopLoss is an anchor: target = entry ± rrMultiple × (entry − stop) (1 = 1:1 R:R)
+//   forcedFlatTime: "16:00",  // close any open position at this bar's close (exchange-local wall-clock), highest-priority exit
+//   (time rule operands: "after 16:00" / "before 09:30" — true on bars whose open is after/before that wall-clock time)
 //   initialCapital: 10000, positionPct: 100, feePct: 0.1, slippagePct: 0.05,
 //   spreadPct: 0,            // bid to ask: buys fill at the ask, sells at the bid, stops trigger on that side
 //   intrabar: 'worst',       // how stops and targets fill inside a bar, see FILLS below
@@ -41,6 +45,30 @@ export const OPS = [
   "crosses",
 ];
 
+// Time operands ("after 16:00", "before 09:30") compare the bar's OPEN time, in
+// America/New_York, against a wall-clock cutoff. Deterministic across DST; bars
+// whose open is exactly at the cutoff are neither "after" nor "before" it.
+const TIME_RULE = /^after (\d{1,2}):(\d{2})$|^before (\d{1,2}):(\d{2})$/;
+const ET_FMT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/New_York",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+export function timeRuleValue(rule, timeSec) {
+  const m = rule.match(TIME_RULE);
+  if (!m) return NaN;
+  const isAfter = rule.startsWith("after");
+  if (!isAfter && rule === "after") return true;
+  const hh = Number(m[1] || m[3]);
+  const mm = Number(m[2] || m[4]);
+  const cutoff = hh * 60 + mm;
+  const parts = ET_FMT.formatToParts(new Date(timeSec * 1000));
+  const get = (t) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  const mod = get("hour") * 60 + get("minute");
+  return isAfter ? mod > cutoff : mod < cutoff;
+}
+
 // A drawn line as an operand: { line: { t1, p1, t2, p2, extend: 'none' | 'right' | 'both' } }.
 // Its price at time t, or NaN where the line doesn't reach (a trend line outside its two points,
 // a ray behind its start).
@@ -68,6 +96,9 @@ export function resolveSeries(bars, indicators = {}, cache = {}) {
     ) {
       const n = Number(operand);
       return () => n;
+    }
+    if (typeof operand === "string" && TIME_RULE.test(operand)) {
+      return (i) => timeRuleValue(operand, bars[i].time);
     }
     if (PRICE_FIELDS.includes(operand)) {
       cache[operand] ??= source(bars, operand);
@@ -186,6 +217,9 @@ export function backtest(bars, strategy, { subBars = null } = {}) {
     ...strategy,
   };
   const cond = conditionFn(bars, s.indicators || {});
+  // Cache for indicator results the engine resolves on its own (e.g. the anchor stop's
+  // stopLevel series) — `conditionFn`'s cache is private to it, so we keep our own here.
+  const indicatorCache = {};
   const exits = s.exitMatch === "any" ? anyOf : allOf;
   const eL = allOf(s.entryLong.map(cond)),
     xL = exits(s.exitLong.map(cond));
@@ -217,12 +251,60 @@ export function backtest(bars, strategy, { subBars = null } = {}) {
 
   // What the position would really fill at: the ask to buy, the bid to sell (price is the mid).
   const exitQuote = (price) => price * (1 - pos.side * half);
+  // Anchor stop: strategy.stopLoss = { indicator, output, refBar? } → a price series read
+  // from an indicator output at or before the fill bar. 'refBar' selects the mode:
+  //   'signal' (default) — scan back up to 4 prior bars (fill bar and i-1..i-4) for the nearest non-NaN value.
+  //                       This is the common case: the indicator fires on bar T, the pending
+  //                       entry fills at T+1, so triggerLow[T] is the value we need.
+  //   'prior'    — read series[i-1] exactly (one bar back).
+  //   0–5 (number) — read series[i - n] exactly (n bars back, for fixed-offset use cases).
+  // Only returns a value if it is a finite number; otherwise null (no anchor).
+  const anchorStopAt = (i) => {
+    const a = s.stopLoss;
+    if (!a || typeof a !== "object") return null;
+    const key = a.indicator, out = a.output;
+    if (!key || !out) return null;
+    const spec = (s.indicators || {})[key];
+    if (!spec) throw new Error(`stopLoss.indicator "${key}" is not under indicators`);
+    const res = indicatorCache[`@${key}`] ?? (indicatorCache[`@${key}`] = compute(spec.id, bars, spec.params || {}));
+    const series = Array.isArray(res[out]) ? res[out] : null;
+    if (!series) throw new Error(`stopLoss.output "${out}" is not an array output of ${spec.id}`);
+    // Fixed-offset modes
+    if (a.refBar === "prior") {
+      const v = series[i - 1];
+      return typeof v === "number" && Number.isFinite(v) ? v : null;
+    }
+    if (typeof a.refBar === "number") {
+      const v = series[i - a.refBar];
+      return typeof v === "number" && Number.isFinite(v) ? v : null;
+    }
+    // Default 'signal': scan back up to 4 bars to find the most recent non-NaN pulse.
+    // This handles both pulse rows (pulse at fill-1) and cc/ch rows (pulse at fill-2)
+    // without the caller needing to know the exact offset.
+    for (let j = i; j >= Math.max(0, i - 4); j--) {
+      const v = series[j];
+      if (typeof v === "number" && Number.isFinite(v)) return v;
+    }
+    return null;
+  };
   const openPos = (i, side, price, reason) => {
     const fill = price * (1 + side * half) * (1 + side * slip);
     const alloc = (cash * s.positionPct) / 100;
     const qty = alloc / (fill * (1 + fee));
     if (qty <= 0) return;
     cash -= qty * fill * (1 + fee);
+    // Stop: anchor stop (strategy.stopLoss object) wins over stopLossPct. Target: if an anchor
+    // exists and rrMultiple is set, the target is the R:R multiple of the ACTUAL stop distance
+    // (entry − stop); otherwise takeProfitPct applies.
+    const anchor = anchorStopAt(i);
+    const pctStop = s.stopLossPct ? fill * (1 - (side * s.stopLossPct) / 100) : null;
+    const stop = anchor != null ? anchor : pctStop;
+    let target = null;
+    if (anchor != null && s.rrMultiple) {
+      target = fill + side * s.rrMultiple * (fill - anchor);
+    } else if (s.takeProfitPct) {
+      target = fill * (1 + (side * s.takeProfitPct) / 100);
+    }
     pos = {
       side,
       qty,
@@ -231,10 +313,8 @@ export function backtest(bars, strategy, { subBars = null } = {}) {
       entryIndex: i,
       reason,
       peak: fill,
-      stop: s.stopLossPct ? fill * (1 - (side * s.stopLossPct) / 100) : null,
-      target: s.takeProfitPct
-        ? fill * (1 + (side * s.takeProfitPct) / 100)
-        : null,
+      stop,
+      target,
     };
   };
 
@@ -265,6 +345,22 @@ export function backtest(bars, strategy, { subBars = null } = {}) {
     pos.peak = pos.side === 1 ? Math.max(pos.peak, p) : Math.min(pos.peak, p);
     const t = pos.peak * (1 - (pos.side * s.trailingStopPct) / 100);
     pos.stop = pos.stop == null ? t : pos.side === 1 ? Math.max(pos.stop, t) : Math.min(pos.stop, t);
+  };
+  // Close-bar helper: are these two bars (ET) the same calendar day?
+  const ET_DAY = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+  const etDayKey = (t) => ET_DAY.format(new Date(t * 1000));
+  const sameETDay = (a, b) => etDayKey(a) === etDayKey(b);
+  const forcedFlatMin = s.forcedFlatTime
+    ? (() => {
+        const m = s.forcedFlatTime.match(/^(\d{1,2}):(\d{2})$/);
+        if (!m) throw new Error(`forcedFlatTime "${s.forcedFlatTime}" expected "HH:MM"`);
+        return Number(m[1]) * 60 + Number(m[2]);
+      })()
+    : null;
+  const barETMin = (t) => {
+    const parts = ET_FMT.formatToParts(new Date(t * 1000));
+    const get = (x) => Number(parts.find((p) => p.type === x)?.value ?? 0);
+    return get("hour") * 60 + get("minute");
   };
   const beyond = (p, level, favour) =>
     level != null && ((pos.side === 1) === favour ? p >= level : p <= level);
@@ -303,10 +399,24 @@ export function backtest(bars, strategy, { subBars = null } = {}) {
 
   for (let i = 0; i < bars.length; i++) {
     const b = bars[i];
-    // 1. fill orders decided on the previous close
+    // 0. Determine if we're on the "close bar" (forced flat): the LAST bar of the day
+    //    before the cutoff. On this bar, no new entries are filled and no new entries
+    //    are queued; a pending CLOSE order is still honored; an open position is closed
+    //    at this bar's close. This is how "no positions past 16:00" is enforced even
+    //    when the bar's close is the session close.
+    const isCloseBar =
+      forcedFlatMin != null &&
+      barETMin(b.time) < forcedFlatMin &&
+      (i === bars.length - 1 ||
+        barETMin(bars[i + 1].time) >= forcedFlatMin ||
+        !sameETDay(b.time, bars[i + 1].time));
+    // 1. fill orders decided on the previous close. A pending ENTRY is NOT filled on the
+    //    close bar — the session rule disallows new positions at the close. A pending
+    //    CLOSE is still filled, so we can close out at the close bar's open.
     if (pending) {
+      const fillEntry = !isCloseBar;
       if (pending.close && pos) closePos(i, exitQuote(b.open), pending.reason);
-      if (pending.side && !pos)
+      if (fillEntry && pending.side && !pos)
         openPos(i, pending.side, b.open, pending.reason);
       pending = null;
     }
@@ -317,8 +427,13 @@ export function backtest(bars, strategy, { subBars = null } = {}) {
         walkExit(i, to > from ? subBars.slice(from, to) : [b]);
       } else worstExit(i, b);
     }
-    // 3. signals on this close -> orders for the next open
-    if (i < bars.length - 1) {
+    // 3. Forced flat: on the close bar, close any still-open position at THIS bar's close.
+    //    (A pending entry from the previous bar was NOT filled on this bar; that's the
+    //    other half of the session rule.)
+    if (isCloseBar && pos) closePos(i, exitQuote(b.close), "Forced flat");
+    // 4. Signals on this close -> pending orders for the NEXT bar's open (skipped on the
+    //    close bar — no position at the close — and on the last bar, since it has no next open).
+    if (!isCloseBar && i < bars.length - 1) {
       if (pos?.side === 1 && (xL(i) || eS(i)))
         pending = {
           close: true,
