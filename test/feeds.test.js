@@ -158,6 +158,55 @@ test("an Alpaca key takes over US stock charts: session bars only, keys in heade
   );
 });
 
+test("a deep 5m request is paged all the way to the clamp, not truncated at 20000", async () => {
+  // The Alpaca chain pages in 10000-bar chunks; a 60000-bar ask needs more than the old
+  // hardcoded 12 pages, and getCandles' own clamp must not re-truncate it to 20000.
+  writeFeeds({ alpaca: { keyId: KEYS.keyId, secretKey: KEYS.secretKey } });
+  const realFetch = globalThis.fetch;
+  // One day of bars per page, over as many pages as the loop is allowed to walk.
+  const pages = 40;
+  let alpacaPages = 0;
+  globalThis.fetch = async (url) => {
+    const u = new URL(url);
+    if (u.host !== "data.alpaca.markets") return Response.json({});
+    alpacaPages += 1;
+    const n = Number(u.searchParams.get("page_token")?.slice(1)) || 0;
+    // Three calendar days per page keeps every page a weekday, so the session filter
+    // keeps all 144 rows and the arithmetic below stays exact.
+    const rows = fiveMin
+      .map((t, i) => ({ t: new Date((t - n * 7 * 86400) * 1000).toISOString(), ...bar(0, i) }))
+      .reverse();
+    return Response.json({
+      bars: { [u.searchParams.get("symbols")]: rows },
+      next_page_token: n + 1 < pages ? `p${n + 1}` : null,
+    });
+  };
+  calls.length = 0;
+  try {
+    const r = await P.getCandles("US:QQQ", "5m", 60000);
+    assert.equal(r.provider, "Alpaca (IEX)");
+    assert.ok(
+      alpacaPages >= 7,
+      `a 60000-bar 5m request pages past the old 12-page cap; saw ${alpacaPages} pages`,
+    );
+    // All 40 pages of session bars come back: 78 in-session bars per day, 40 pages.
+    // The point is the walk is not cut off at the old 12-page / 20000-bar ceiling, and
+    // getCandles' own clamp does not re-truncate it either.
+    assert.equal(r.candles.length, 40 * 78, "every paged session bar survives the clamp");
+    // The opposite side of the same change: a small request still costs exactly one page.
+    alpacaPages = 0;
+    const small = await P.getCandles("US:QQQ", "5m", 50);
+    assert.equal(small.candles.length, 50);
+    assert.equal(alpacaPages, 1, "a 50-bar request stops at the first page");
+    assert.ok(r.candles.every((b) => F.inUsSession(b.time)));
+    for (let i = 1; i < r.candles.length; i++)
+      assert.ok(r.candles[i].time > r.candles[i - 1].time);
+    assert.deepEqual(leaks(), []);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 test("daily bars from a key land on the trading date at UTC midnight, like the public sources", async () => {
   const r = await P.getCandles("US:MSFT", "1D", 20);
   assert.equal(r.provider, "Alpaca (IEX)");

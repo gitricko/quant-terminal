@@ -6,6 +6,12 @@
 // (the model in docs/ivb-5min.md §3-§6), never read back from the engine, so a
 // regression in entry fill, anchor resolution, or the R:R multiple turns this red.
 //
+// The STRATEGY tests below run the committed fixture through the engine at the
+// committed strategy settings, with every expected number re-derived by hand from
+// the fixture's own OHLCV. The v2 sweep numbers (docs/strategies/ivb-5min-orb.md,
+// results/ivb-or-break-backtest.csv) are pinned separately in
+// test/ivb-sweep-pinned.test.js against the same engine, so a change in fill,
+// anchor, RR scaling, or cost handling cannot silently move a swept number.
 // The strategy is the one in docs/strategies/ivb-5min-orb.md, verbatim.
 import { test } from "node:test";
 import assert from "node:assert/strict";

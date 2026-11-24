@@ -593,7 +593,7 @@ class App {
     const card = this.modal(
       "Settings",
       `<div class="form-grid">
-      <label class="field">Bars to load per chart<input id="sBars" type="number" min="200" max="20000" step="100" value="${s.bars}"></label>
+      <label class="field">Bars to load per chart<input id="sBars" type="number" min="200" max="60000" step="100" value="${s.bars}"></label>
       <label class="field">Time axis<select id="sUtc"><option value="0" ${!s.utc ? "selected" : ""}>My local time</option><option value="1" ${s.utc ? "selected" : ""}>UTC</option></select></label>
       <label class="field">Volume on the price chart<select id="sVol"><option value="1" ${s.volume ? "selected" : ""}>Show</option><option value="0" ${!s.volume ? "selected" : ""}>Hide</option></select></label>
       <label class="field">After placing a drawing<select id="sStay"><option value="0" ${!s.stayInDrawMode ? "selected" : ""}>Back to cursor</option><option value="1" ${s.stayInDrawMode ? "selected" : ""}>Keep the tool</option></select></label>
@@ -603,7 +603,7 @@ class App {
     );
     card.querySelector("[data-ok]").onclick = () => {
       Object.assign(s, {
-        bars: Math.max(200, Math.min(20000, Number($("#sBars").value) || 3000)),
+        bars: Math.max(200, Math.min(60000, Number($("#sBars").value) || 3000)),
         utc: $("#sUtc").value === "1",
         volume: $("#sVol").value === "1",
         stayInDrawMode: $("#sStay").value === "1",
