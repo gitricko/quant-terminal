@@ -113,9 +113,12 @@ test("provenance: the committed 3-year bar fixtures have the documented depth", 
     TQQQ: { bars: 60000, sessions: SESSIONS.TQQQ, from: "2023-10-18", to: "2026-11-23" },
     SQQQ: { bars: 60000, sessions: SESSIONS.SQQQ, from: "2023-10-13", to: "2026-11-23" },
   };
-  await t.assert.doesNotReject(async () => {
-    for (const [sym, w] of Object.entries(want)) {
-      const bars = load(sym);
+  // Plain try/finally, not `t.assert.doesNotReject`: the repo's floor is Node 18, where
+  // the test-context `assert` sub-object does not exist. `assert` from node:assert/strict
+  // throws on its own, which the runner reports as this test failing.
+  for (const [sym, w] of Object.entries(want)) {
+    const bars = load(sym);
+    try {
       const days = new Set(bars.map((b) => etDay(b.time)));
       assert.equal(bars.length, w.bars, `${sym} bar count`);
       assert.equal(days.size, w.sessions, `${sym} session count`);
@@ -123,9 +126,10 @@ test("provenance: the committed 3-year bar fixtures have the documented depth", 
       assert.equal(etDay(bars.at(-1).time), w.to, `${sym} last session`);
       for (let i = 1; i < bars.length; i++)
         assert.ok(bars[i].time > bars[i - 1].time, `${sym} bars are time-ordered`);
-      bars.length = 0;
+    } finally {
+      bars.length = 0; // drop it before the next symbol's 60000 bars arrive
     }
-  });
+  }
 });
 
 test("RR1 zero-cost: the re-baselined 3-year numbers reproduce from the committed bars", async (t) => {
