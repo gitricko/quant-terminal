@@ -8,8 +8,8 @@
   "rrMultiple": 3,
   "initialCapital": 10000,
   "positionPct": 100,
-  "feePct": 0.03,
-  "slippagePct": 0.03,
-  "spreadPct": 0.01,
+  "feePct": 0,
+  "slippagePct": 0,
+  "spreadPct": 0,
   "intrabar": "worst"
 }
