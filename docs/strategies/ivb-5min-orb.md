@@ -6,6 +6,12 @@ The long-only ORB break-and-confirm model, exactly as marked by `custom/ivb-5min
 in PR #8), is wired into the strategy tester and backtested on QQQ, TQQQ and SQQQ at 5m with
 costs. **The numbers are the tester's own numbers — no hand adjustments.**
 
+Cost default note (after the v2 sweep): the captain's brokerage charges no commission, so the
+committed strategy JSONs now ship the **zero-cost** model — `feePct`/`slippagePct`/`spreadPct`
+all `0` — instead of v2's `old` triple. The v2 sweep itself still reports the `zero`, `live`
+and `old` models side by side, and `results/ivb-or-break-backtest.csv` is unchanged (its `zero`
+rows are exactly this configuration). See §2's cost table.
+
 What changed from v1, and why every number below differs from v1's:
 
 1. **Data depth.** v1's "~300 sessions" was a *ceiling*, not a sample: the app clamped candle
@@ -22,7 +28,9 @@ What changed from v1, and why every number below differs from v1's:
 3. **Honest cost columns.** v1 ran one cost model (the conservative ETF triple). v2 runs three
    and states which is which: **zero** (gross, shows the model's raw signal), **live** (the
    captain's near-free retail model), and **old** (v1's conservative ETF triple, kept for
-   continuity). The honest verdict depends on the model, so both are printed.
+   continuity). The honest verdict depends on the model, so all three are printed. *(Update
+   since the sweep: the committed strategy JSONs now ship the **`zero`** triple — see §2 — but
+   the sweep's three columns are unchanged research record.)*
 4. **Time split.** Splitting the sample at a fixed calendar date (2025-11-05, ~264 sessions on
    each side) shows the edge is **not flat**: it is concentrated in the recent bull regime.
    See §6.
@@ -61,9 +69,9 @@ Committed copy: `strategies/ivb-5min.json`. The RR3 research variant is
   "rrMultiple": 1,
   "initialCapital": 10000,
   "positionPct": 100,
-  "feePct": 0.03,
-  "slippagePct": 0.03,
-  "spreadPct": 0.01,
+  "feePct": 0,
+  "slippagePct": 0,
+  "spreadPct": 0,
   "intrabar": "worst"
 }
 ```
@@ -82,12 +90,23 @@ Committed copy: `strategies/ivb-5min.json`. The RR3 research variant is
 
   | model | `feePct` | `slippagePct` | `spreadPct` | what it represents |
   |-------|---------:|--------------:|------------:|--------------------|
-  | `zero` | 0 | 0 | 0 | gross: the model's raw signal, no execution at all |
+  | `zero` (**shipped default**) | 0 | 0 | 0 | gross: the model's raw signal, no execution at all |
   | `live` | 0 | 0.01 | 0.005 | the captain's near-free retail execution: no commission, 0.01% slippage + 0.005% half-spread a side (limit entry at the confirm close ≈ 0 cost) |
   | `old`  | 0.03 | 0.03 | 0.01 | v1's conservative ETF triple, kept for continuity |
 
   All per side, per round trip entered plus exited. No `stopLossPct`/`takeProfitPct` — the anchor
   stop owns both levels.
+
+  **Shipped default is now `zero`.** The captain's brokerage charges no commission, and the
+  captain chose to model zero fee, zero slippage and zero spread, so `strategies/ivb-5min.json`
+  and `strategies/ivb-5min-rr3.json` ship with all three cost fields at `0` — the same
+  configuration as the sweep's `zero` column (verified by reading both JSONs back). `zero` is
+  therefore no longer only a comparison column: it is the shipped default as well. The
+  `zero` / `live` / `old` rows above are the research record and stay exactly as the sweep
+  produced them — the sweep still reports all three cost models side by side for comparison.
+  `results/ivb-or-break-backtest.csv` is the pinned sweep and was **not** regenerated or edited
+  when the strategy JSONs went zero-cost; its `zero` rows already are this exact configuration,
+  so the CSV needs no change and stays as-is.
 - **Intrabar** — `intrabar: "worst"`, the engine's pessimistic default: when a bar touches both
   the stop and the target, the **stop books first** (the model's look-ahead rule). The engine
   reports this back as `fills: "Stop first when a bar touches both"`.
@@ -137,7 +156,9 @@ SQQQ**; under the **`live` retail cost model all three go net negative**; under 
 conservative-ETF triple all three are heavily negative**. Against buy-and-hold over the same
 three years, the strategy is not close: QQQ +82.6%, TQQQ +160.3% (a 3×-levered bull), and even
 SQQQ's −90.5% is a *different* risk profile, not a comparable one. **The model's edge is thin
-and cost-sensitive — that is the honest v2 headline.**
+and cost-sensitive — that is the honest v2 headline. (The shipped JSON now runs `zero` cost,
+the captain's no-commission choice; the sweep columns, including the cost-sensitivity read, are
+untouched — see §2.)**
 
 Per-year (RR1, zero cost; `avg_trade_pct` is the arithmetic mean per trade, `net %` needs the
 full run, so per-year net% lives in the CSV's split rows):
@@ -348,7 +369,9 @@ Hand-picked spot checks (indicator vs tester trade list) on the re-baselined sam
      -d '{"symbol":"QQQ","tf":"5m","limit":60000,"strategy":'"$(cat strategies/ivb-5min.json)"'}'
    ```
    `limit: 60000` works only with the depth fix in this PR (§3). The response's `stats` block is
-   the CSV's headline row; `trades` is the per-trade list.
+   the CSV's headline row; `trades` is the per-trade list. The committed JSON now ships the
+   `zero` cost model (§2), so that command reproduces the §4 `zero` headline directly; to
+   reproduce the `live`/`old` columns, override the three cost fields with the table's values.
 3. **Run the pinned tests**: `npm test`. Three files cover this strategy:
    - `test/ivb-5min.test.js` — the indicator's state machine.
    - `test/ivb-5min-backtest.test.js` — the hand-derived geometry test on a six-session TQQQ
@@ -391,7 +414,9 @@ In priority order, for whoever picks this up next:
   (RR1, and the RR3 research variant).
 - `docs/strategies/ivb-5min-orb.md` — this spec (v2).
 - `results/ivb-or-break-backtest.csv` — the committed sweep: headline + per-year + per-quarter
-  + RR × cost grid + time-split rows, with the §8 disclosure columns.
+  + RR × cost grid + time-split rows, with the §8 disclosure columns. Pinned: not regenerated
+  when the strategy JSONs went zero-cost, because its `zero` rows already are that
+  configuration (see §2's cost table).
 - `scripts/sweep-ivb-3year.js` — the provenance script; `--check` re-derives the CSV from the
   committed fixtures.
 - `test/fixtures/{qqq,tqqq,sqqq}-5m-60000.json` — the 3-year raw Alpaca IEX bars the sweep ran
