@@ -1,0 +1,15 @@
+{
+  "name": "IVB 5min ORB break/confirm",
+  "indicators": { "ivb": { "id": "custom:ivb-5min", "params": {} } },
+  "entryLong": [{ "left": "ivb.signal", "op": ">", "right": 0 }],
+  "exitLong": [],
+  "exitMatch": "all",
+  "stopLoss": { "indicator": "ivb", "output": "stop", "refBar": "prior" },
+  "rrMultiple": 1,
+  "initialCapital": 10000,
+  "positionPct": 100,
+  "feePct": 0,
+  "slippagePct": 0,
+  "spreadPct": 0,
+  "intrabar": "worst"
+}
